@@ -658,7 +658,7 @@ emcc \
   -I"$BUILD_DIR/VerusCoin/src" \
   -s WASM=1 \
   -s EXPORTED_FUNCTIONS='["_malloc","_free","_verus_hash"]' \
-  -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' \
+  -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8"]' \
   -s ALLOW_MEMORY_GROWTH=1 \
   -s MODULARIZE=1 \
   -s EXPORT_NAME="VerusHashModule" \
