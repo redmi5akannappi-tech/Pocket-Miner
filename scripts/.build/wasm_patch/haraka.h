@@ -1,10 +1,11 @@
 #pragma once
-#include "haraka_portable.h"
 #include "x86intrin.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include "haraka_portable.h"
 
 void load_constants(void);
 void haraka512_zero(unsigned char *out, const unsigned char *in);

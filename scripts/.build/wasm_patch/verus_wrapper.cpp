@@ -21,6 +21,12 @@ extern "C" {
  */
 EMSCRIPTEN_KEEPALIVE
 void verus_hash(uint8_t *out, const uint8_t *in, uint32_t len) {
+    static bool initialized = false;
+    if (!initialized) {
+        CVerusHash::init();
+        CVerusHashV2::init();
+        initialized = true;
+    }
     CVerusHashV2::Hash(out, in, len);
 }
 

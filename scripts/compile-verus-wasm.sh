@@ -552,12 +552,13 @@ EOF
 # ── haraka.h (good one — used by verus_hash.cpp) ────────────────────────────
 cat > "$PATCH/haraka.h" << 'EOF'
 #pragma once
-#include "haraka_portable.h"
 #include "x86intrin.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#include "haraka_portable.h"
 
 void load_constants(void);
 void haraka512_zero(unsigned char *out, const unsigned char *in);
@@ -633,6 +634,12 @@ extern "C" {
  */
 EMSCRIPTEN_KEEPALIVE
 void verus_hash(uint8_t *out, const uint8_t *in, uint32_t len) {
+    static bool initialized = false;
+    if (!initialized) {
+        CVerusHash::init();
+        CVerusHashV2::init();
+        initialized = true;
+    }
     CVerusHashV2::Hash(out, in, len);
 }
 
