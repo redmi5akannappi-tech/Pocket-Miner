@@ -663,7 +663,10 @@ emcc \
   -s MODULARIZE=1 \
   -s EXPORT_NAME="VerusHashModule" \
   -s ENVIRONMENT='web,worker' \
-  -O3 \
+  -s ASSERTIONS=1 \
+  -O2 \
+  -fno-inline \
+  -fkeep-static-consts \
   -o "$BUILD_DIR/verus_hash.js"
 
 echo "Done. Output: $BUILD_DIR/verus_hash.js / .wasm"
