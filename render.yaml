@@ -9,7 +9,7 @@ services:
     runtime: node
     plan: free
     # Build the client (Vite → client/dist) then install server deps.
-    buildCommand: npm --prefix client install && npm --prefix client run build && npm --prefix server install
+    buildCommand: npm --prefix client install --include=dev && npm --prefix client run build && npm --prefix server install
     # Server serves client/dist + /api + /ws. Binds to $PORT (injected by Render).
     startCommand: node server/src/index.js
     healthCheckPath: /health
