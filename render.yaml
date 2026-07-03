@@ -1,0 +1,73 @@
+# render.yaml — Render Blueprint
+# Defines both backend (Web Service) and frontend (Static Site)
+# Push this to your GitHub repo root, then connect on Render → New → Blueprint
+
+services:
+  # ─── Backend API + WebSocket ────────────────────────────────────────────────
+  - type: web
+    name: pocket-miner-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node src/index.js
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: USE_MEMORY
+        value: false           # set to true for testing without MongoDB
+      - key: DEV_BYPASS
+        value: false           # MUST be false in production (Telegram auth required)
+      - key: MONGODB_URI
+        sync: false            # set manually in Render dashboard
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false            # set manually in Render dashboard
+      - key: WALLET_ADDRESS
+        value: RS3cJERG58N2GJbZSP3MpkFunACZ4kawpZ
+      - key: POOL_HOST
+        value: ap.luckpool.net
+      - key: POOL_HOST_BACKUP
+        value: na.luckpool.net
+      - key: POOL_PORT
+        value: 3956
+      - key: POOL_ALGORITHM
+        value: verushash
+      - key: WORKER_NAME
+        value: pocketminer
+      - key: POOL_REWARD_RATE
+        value: 0.0001
+      - key: POINTS_PER_SHARE
+        value: 10
+      - key: SESSION_BONUS_MULTIPLIER
+        value: 1.5
+      - key: MIN_WITHDRAWAL
+        value: 0.001
+      - key: MAX_SHARES_PER_MINUTE
+        value: 60
+      - key: MAX_HASHRATE_MH
+        value: 10
+      - key: CORS_ORIGIN
+        value: https://pocket-miner.onrender.com  # update to your static site URL
+
+  # ─── Frontend Static Site ────────────────────────────────────────────────────
+  - type: web
+    name: pocket-miner
+    runtime: static
+    rootDir: client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://pocket-miner-api.onrender.com/api
+      - key: VITE_WS_URL
+        value: wss://pocket-miner-api.onrender.com/ws

