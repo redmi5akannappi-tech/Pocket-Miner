@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Pickaxe } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { api } from '../context/UserContext';
 
@@ -39,9 +40,7 @@ export default function Leaderboard() {
   return (
     <div className="page-content animate-fade-in">
       <div className="page-header">
-        <h1 className="page-title" style={{ background: 'linear-gradient(135deg, var(--neon-gold), var(--neon-orange))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', filter: 'drop-shadow(0 0 8px rgba(255,215,0,0.4))' }}>
-          🏆 Leaderboard
-        </h1>
+        <h1 className="page-title page-title-gold">Leaderboard</h1>
         <div style={{ textAlign: 'right' }}>
           <span className="badge badge-blue">{totalMiners.toLocaleString()} Miners</span>
         </div>
@@ -114,7 +113,7 @@ export default function Leaderboard() {
         <div className="spinner" />
       ) : leaderboard.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>⛏️</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, color: 'var(--text-dim)' }}><Pickaxe size={40} /></div>
           <p>Be the first miner! Start mining to appear here.</p>
         </div>
       ) : (

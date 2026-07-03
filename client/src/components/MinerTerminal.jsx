@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pickaxe } from 'lucide-react';
 
 const MAX_LINES = 80;
 
@@ -61,10 +62,11 @@ export default function MinerTerminal({ logs = [], isOpen, onToggle }) {
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: isOpen ? '#39ff14' : '#333' }} />
           </div>
           <span style={{
-            fontFamily: 'monospace', fontSize: '0.78rem',
-            color: 'var(--neon-green)', letterSpacing: '0.08em',
+            fontFamily: 'monospace', fontSize: '0.72rem',
+            color: 'var(--neon-green)', letterSpacing: '0.06em',
+            display: 'inline-flex', alignItems: 'center', gap: 6,
           }}>
-            ⛏ miner@pocket-miner ~ verushash · ap.luckpool.net:3956
+            <Pickaxe size={13} /> miner@pocket-miner ~ verushash
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

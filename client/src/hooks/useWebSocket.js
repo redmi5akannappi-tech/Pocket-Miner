@@ -1,7 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
+// Same-origin WebSocket by default. MUST match the page protocol — on HTTPS
+// (Render) a hardcoded ws:// is mixed-content and gets blocked, so derive wss://.
 const WS_URL = typeof window !== 'undefined'
-  ? (import.meta.env.VITE_WS_URL || `ws://${window.location.host}/ws`)
+  ? (import.meta.env.VITE_WS_URL ||
+     `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`)
   : 'ws://localhost:3001/ws';
 
 const RECONNECT_DELAY = 3000;

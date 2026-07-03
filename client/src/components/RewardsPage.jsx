@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { BarChart3, Trophy, Gem, Timer, Inbox, ArrowUpFromLine, Gift, Pickaxe } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 
 const MIN_WITHDRAWAL = 0.001;
@@ -50,10 +51,10 @@ export default function RewardsPage() {
   const canWithdraw = pendingBalance >= MIN_WITHDRAWAL;
 
   const STATUS_COLOR = {
-    pending:   { bg: 'rgba(255,140,0,0.12)', color: 'var(--neon-orange)', label: '⏳ Pending' },
-    approved:  { bg: 'rgba(57,255,20,0.12)', color: 'var(--neon-green)', label: '✅ Approved' },
-    rejected:  { bg: 'rgba(255,68,102,0.12)', color: 'var(--neon-red)', label: '❌ Rejected' },
-    completed: { bg: 'rgba(0,212,255,0.12)', color: 'var(--neon-blue)', label: '💎 Completed' },
+    pending:   { bg: 'rgba(255,157,77,0.12)', color: 'var(--neon-orange)', label: 'Pending' },
+    approved:  { bg: 'rgba(47,224,160,0.12)', color: 'var(--neon-green)', label: 'Approved' },
+    rejected:  { bg: 'rgba(255,92,114,0.12)', color: 'var(--neon-red)', label: 'Rejected' },
+    completed: { bg: 'rgba(77,184,255,0.12)', color: 'var(--neon-blue)', label: 'Completed' },
   };
 
   return (
@@ -61,9 +62,7 @@ export default function RewardsPage() {
       {toast && <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>}
 
       <div className="page-header">
-        <h1 className="page-title" style={{ background: 'var(--grad-gold)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', filter: 'drop-shadow(0 0 8px rgba(255,215,0,0.4))' }}>
-          💰 Rewards
-        </h1>
+        <h1 className="page-title page-title-gold">Rewards</h1>
       </div>
 
       {/* Balance Cards */}
@@ -78,7 +77,7 @@ export default function RewardsPage() {
 
         {canWithdraw ? (
           <button className="btn btn-gold btn-full" onClick={() => setShowWithdrawForm(v => !v)}>
-            {showWithdrawForm ? '✕ Cancel' : '💸 Withdraw Funds'}
+            {showWithdrawForm ? 'Cancel' : <><ArrowUpFromLine size={17} /> Withdraw Funds</>}
           </button>
         ) : (
           <div style={{ textAlign: 'center', padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
@@ -101,8 +100,8 @@ export default function RewardsPage() {
       {/* Withdraw Form */}
       {showWithdrawForm && (
         <div className="card card-green mb-16 animate-fade-in">
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: '1rem', marginBottom: 14, color: 'var(--neon-green)' }}>
-            💸 Withdrawal Request
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: '1rem', marginBottom: 14, color: 'var(--neon-green)', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800 }}>
+            <ArrowUpFromLine size={17} /> Withdrawal Request
           </p>
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 6 }}>
@@ -142,7 +141,7 @@ export default function RewardsPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-outline btn-full btn-sm" onClick={() => setAmount(formatBalance(pendingBalance))}>Max</button>
             <button className="btn btn-green btn-full" onClick={handleWithdraw} disabled={loading}>
-              {loading ? '⏳ Submitting...' : '✅ Confirm'}
+              {loading ? 'Submitting...' : 'Confirm'}
             </button>
           </div>
           <p style={{ marginTop: 10, fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center' }}>
@@ -154,22 +153,22 @@ export default function RewardsPage() {
       {/* Stats Row */}
       <div className="stats-grid mb-16">
         <div className="stat-card gold">
-          <span className="stat-icon">📊</span>
+          <span className="stat-icon"><BarChart3 size={20} /></span>
           <span className="stat-value">{formatBalance(totalEarned)}</span>
           <span className="stat-label">Total Earned</span>
         </div>
         <div className="stat-card purple">
-          <span className="stat-icon">🏆</span>
+          <span className="stat-icon"><Trophy size={20} /></span>
           <span className="stat-value">{(user?.totalPoints || 0).toLocaleString()}</span>
           <span className="stat-label">Total Points</span>
         </div>
         <div className="stat-card green">
-          <span className="stat-icon">💎</span>
+          <span className="stat-icon"><Gem size={20} /></span>
           <span className="stat-value">{user?.totalValidShares || 0}</span>
           <span className="stat-label">Valid Shares</span>
         </div>
         <div className="stat-card blue">
-          <span className="stat-icon">⏱️</span>
+          <span className="stat-icon"><Timer size={20} /></span>
           <span className="stat-value">{user?.totalMiningMinutes || 0}</span>
           <span className="stat-label">Mined (min)</span>
         </div>
@@ -179,7 +178,7 @@ export default function RewardsPage() {
       <div className="section-label mb-12">Transaction History</div>
       {recentTransactions.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>📭</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, color: 'var(--text-dim)' }}><Inbox size={40} /></div>
           <p style={{ fontSize: '0.85rem' }}>No transactions yet. Start mining!</p>
         </div>
       ) : (
@@ -191,8 +190,8 @@ export default function RewardsPage() {
               background: s.bg, borderRadius: 'var(--radius-md)', marginBottom: 10,
               border: `1px solid ${s.color}33`,
             }}>
-              <span style={{ fontSize: '1.4rem' }}>
-                {tx.type === 'withdrawal' ? '💸' : tx.type === 'mining' ? '⛏️' : '🎁'}
+              <span style={{ display: 'inline-flex', color: s.color, flexShrink: 0 }}>
+                {tx.type === 'withdrawal' ? <ArrowUpFromLine size={22} /> : tx.type === 'mining' ? <Pickaxe size={22} /> : <Gift size={22} />}
               </span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)', textTransform: 'capitalize' }}>{tx.type}</div>

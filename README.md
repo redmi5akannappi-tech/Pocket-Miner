@@ -87,6 +87,70 @@ We compiled the full VerusCoin hashing algorithm (VerusHash 2.2 with CLHash + ke
 5. When `hash < target`: share is sent via WebSocket → Stratum proxy → Pool
 6. Pool verifies and accepts → user earns real VRSC
 
+> **Single-service hosting:** frontend, REST API, and WebSocket all run from **one Node
+> process on one origin**. The server serves the built React SPA from `client/dist`,
+> exposes the API under `/api`, and upgrades WebSocket connections at `/ws` — so there
+> is no cross-origin CORS and one Render Web Service hosts the whole app.
+
+---
+
+## 💎 How a Share Is Counted, Rewarded & Recorded
+
+Each time a worker finds a hash that beats the target, **two independent things happen** —
+one earns real crypto on the pool, the other is what the dashboard counts and what the
+database persists.
+
+```
+ worker finds hash ≤ target  (meetsPool = true)
+        │
+        ├── ① POOL PATH  (real VRSC)
+        │      WS {type:"share"} ──▶ wsHandler ──▶ anti-cheat ──▶ Stratum ──▶ LuckPool
+        │                                                         └─ pool accepts / rejects
+        │
+        └── ② ACCOUNTING PATH  (points + DB)
+               buffered in pendingShares ──(every 10 s)──▶ POST /api/shares/submit
+                                                              │ anti-cheat re-validates
+                                                              ▼
+                                             Session.sharesSubmitted++
+                                             Session.validShares++      (if valid)
+                                             Session.avgHashrate = EMA(α=0.1)
+```
+
+**The "Shares" number on the mining page** is `sessionShares` — it ticks up by one every
+time `POST /api/shares/submit` returns `valid: true`. So the counter reflects
+**server-validated** shares for the current session, not raw hashes.
+
+**Anti-cheat gate** (`server/src/services/antiCheat.js`) rejects a share if any of these
+fail — missing data, hashrate above `MAX_HASHRATE_MH`, session older than 30 min,
+more than `MAX_SHARES_PER_MINUTE` in the last minute, an invalid-share ratio above 50 %
+(after 10 shares), or a failed proof-of-work check (leading-zero fallback; trusts
+`meetsPool`/`meetsLocal` when the worker already verified against the real target).
+
+**When the session ends** (`POST /api/session/end` → `rewardEngine.calculateSessionPoints`)
+the accumulated `validShares` are converted and written to the `User` document:
+
+```
+points = floor( validShares × POINTS_PER_SHARE × modeMult × sessionBonus × multiplierApplied )
+crypto =        validShares × POOL_REWARD_RATE  × multiplierApplied           (8 decimals)
+```
+
+| Factor | Value / source |
+|--------|----------------|
+| `POINTS_PER_SHARE` | `10` (env) |
+| `POOL_REWARD_RATE` | `0.0001` VRSC per valid share (env) |
+| `modeMult` | eco `0.5` · balanced `1.0` · turbo `1.8` · monster `1.0` (default) |
+| `sessionBonus` | `1.5` if the session ran ≥ 5 min, else `1.0` |
+| `multiplierApplied` | fixed at session start = **upgrade reward multiplier × streak multiplier** |
+
+Then the user totals are incremented and persisted in one write:
+`totalPoints += points`, `pendingBalance += crypto`, `totalEarned += crypto`,
+`totalValidShares += validShares`, `totalMiningMinutes += floor(durationSeconds / 60)`,
+and daily mission progress is updated.
+
+> **Storage:** with `USE_MEMORY=true` the same `Session` / `User` / `Transaction` shapes
+> live in an in-memory store (no Mongo needed — ideal for the Render free tier). Set
+> `USE_MEMORY=false` + `MONGODB_URI` to persist to MongoDB Atlas instead.
+
 ---
 
 ## ⚡ Performance
@@ -223,42 +287,72 @@ When submitting, the original MMR roots are **restored** — the pool needs them
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET`  | `/health` | Server health check |
-| `GET`  | `/api/user/stats` | Full user profile + upgrades |
-| `POST` | `/api/session/start` | Start mining session |
-| `POST` | `/api/session/end` | End session + calculate rewards |
-| `POST` | `/api/shares/submit` | Submit a PoW share |
-| `POST` | `/api/upgrades/buy` | Buy upgrade (cpu/efficiency/boost) |
+| `GET`  | `/health` | Server health check (Render health path) |
+| `GET`  | `/api/user/stats` | Full user profile + upgrades + recent transactions |
+| `POST` | `/api/session/start` | Start mining session (returns `sessionId` + multipliers) |
+| `POST` | `/api/session/end` | End session + calculate & persist rewards |
+| `POST` | `/api/shares/submit` | Submit a PoW share (validates + counts `validShares`) |
+| `POST` | `/api/upgrades/buy` | Buy upgrade (cpu / efficiency / boost) |
+| `POST` | `/api/upgrades/boost` | Activate the 2× reward boost |
+| `POST` | `/api/withdraw` | Request a withdrawal (min `MIN_WITHDRAWAL`) |
+| `POST` | `/api/user/claim-missions` | Claim completed daily-mission points |
 | `GET`  | `/api/leaderboard` | Top miners by points |
 | `GET`  | `/api/user/missions` | Daily missions + progress |
 
-### WebSocket Protocol
+Any GET that isn't `/api/*` or `/ws` falls through to the SPA `index.html` (client-side
+routing); unknown `/api/*` paths return a JSON `404`.
+
+### WebSocket Protocol (`/ws`)
 
 ```
-Client → { type: "auth",  telegramId, sessionId }
-Client → { type: "share", shareData: { jobId, nonce2Hex, time, hash, solution, ... } }
-Server → { type: "job",   job: { jobId, version, prevhash, merkle, target, ... } }
-Server → { type: "share_result", accepted: true/false }
+Server → { type: "connected",    algorithm, pool }        # greeting on connect
+Client → { type: "auth",         telegramId, sessionId }  # subscribe to pool jobs
+Server → { type: "job",          job: { jobId, target, ... } }
+Client → { type: "share",        shareData: { jobId, nonce2Hex, time, hash, solution, meetsPool, ... } }
+Server → { type: "share_ack",    valid, reason, jobId }   # anti-cheat result
+Server → { type: "share_result", accepted, error }        # relayed from the pool
+Server → { type: "stopped" } | { type: "error", message }
 ```
+
+The WS URL is derived from the page origin (`wss://` on HTTPS, `ws://` on localhost), so it
+always matches the single-service host with no manual configuration.
 
 ---
+
+## 🎨 UI / UX & Performance
+
+The client is a mobile-first React SPA tuned for Telegram's in-app browser:
+
+- **Real vector icons, not emoji** — every tab, button, stat, and status indicator uses
+  [`lucide-react`](https://lucide.dev) line icons (tree-shaken per-icon), for a clean,
+  consistent, non-"AI-generated" look.
+- **Modern dark design tokens** — one accent-driven palette, flat elevated surfaces,
+  hairline borders, tabular-numeric stats; heavy neon/blur effects removed.
+- **Code-split routes** — only the Dashboard loads eagerly; Upgrades / Rewards / Missions /
+  Leaderboard / About are `React.lazy` chunks (~8 kB each), so first paint stays small.
+- **Telegram-native** — `WebApp.ready()/expand()`, header + background themed to the app
+  palette, vertical swipe-to-close disabled, closing confirmation, safe-area insets, and a
+  `viewport-fit=cover` layout with comfortable ≥48 px tap targets.
+- **Backend perf** — gzip `compression`, `immutable` caching for content-hashed assets,
+  `no-cache` for the worker/WASM, and `trust proxy` so rate-limiting sees the real client IP.
+- **Respects `prefers-reduced-motion`** — animations collapse for accessibility / battery.
 
 ## 🎮 Gamification
 
 | Upgrade | Effect | Base Cost |
 |---------|--------|-----------|
-| ⚙️ CPU Processor | +10% hashrate per level | 500 pts |
-| ❄️ Cooling System | +8% efficiency per level | 300 pts |
-| 🚀 Boost Core | +5% reward multiplier | 800 pts |
+| CPU Processor (`Cpu`) | +10% hashrate per level | 500 pts |
+| Cooling System (`Snowflake`) | +8% efficiency per level | 300 pts |
+| Boost Core (`Rocket`) | +5% reward multiplier | 800 pts |
 
-Mining modes control CPU usage:
+Mining modes control CPU usage (worker throttle) and thread count (share of CPU cores):
 
-| Mode | CPU Target | Sleep/Batch |
-|------|-----------|-------------|
-| 🌱 Eco | 15% | 25ms |
-| ⚖️ Balanced | 40% | 18ms |
-| 🔥 Turbo | 75% | 7ms |
-| 💀 Monster | 100% | 0ms |
+| Mode | Icon | CPU Target | Sleep/Batch | Threads |
+|------|------|-----------|-------------|---------|
+| Eco | `Leaf` | 15% | 25ms | 25% of cores |
+| Balanced | `Zap` | 40% | 18ms | 50% of cores |
+| Turbo | `Rocket` | 75% | 7ms | 75% of cores |
+| Monster | `Flame` | 100% | 0ms | all cores |
 
 ---
 
@@ -273,18 +367,33 @@ Mining modes control CPU usage:
 
 ## 🚢 Deployment
 
-### Render (recommended)
+### Render — single service (recommended)
 
-1. Push to GitHub
-2. Create **Web Service** for backend:
-   - Build: `cd server && npm install`
-   - Start: `node src/index.js`
-   - Set env vars (MongoDB, Telegram, pool config)
-3. Deploy **Static Site** for client:
-   - Build: `npm install && npm run build`
-   - Publish: `dist/`
+The whole app deploys as **one Web Service**. Node builds the client, then serves the SPA
++ API + WebSocket from a single origin — no separate static site, no CORS.
 
-See [`render.yaml`](render.yaml) for the full Blueprint spec.
+1. Push to GitHub → Render → **New → Blueprint** (picks up [`render.yaml`](render.yaml)).
+2. Render runs:
+   - **Build:** `npm --prefix client install && npm --prefix client run build && npm --prefix server install`
+   - **Start:** `node server/src/index.js`
+   - **Health check:** `/health`
+3. Set secrets in the dashboard: `TELEGRAM_BOT_TOKEN` (and `MONGODB_URI` if
+   `USE_MEMORY=false`). Everything else is pre-set in the blueprint.
+
+The server binds to Render's injected `$PORT`, serves hashed assets as `immutable`
+and the worker/WASM as `no-cache`, and derives `wss://` automatically on HTTPS so the
+pool WebSocket is never blocked as mixed content.
+
+> **Free-tier note:** the instance spins down after ~15 min idle and cold-starts on the
+> next request. The app tolerates this — sessions/rewards simply resume on reconnect.
+
+### Local single-service smoke test
+
+```bash
+cd client && npm run build          # produce client/dist
+cd ../server && USE_MEMORY=true DEV_BYPASS=true node src/index.js
+# open http://localhost:3001  →  SPA, /api, and /ws all served from this one port
+```
 
 ---
 

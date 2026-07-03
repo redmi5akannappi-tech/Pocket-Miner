@@ -1,13 +1,16 @@
 import React, { useState, useCallback } from 'react';
+import { Timer, Zap, Rocket, Coins, Flame, Gift, CircleCheck, Sprout, Crown, PartyPopper } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { api } from '../context/UserContext';
 
 const MISSIONS = [
-  { id: 'mine_5_mins',    icon: '⏱️', title: 'Warm Up',        desc: 'Mine for 5 minutes',           field: 'mineMins',    target: 5,    reward: 150 },
-  { id: 'mine_15_mins',   icon: '⚡', title: 'Power Session',   desc: 'Mine for 15 minutes',          field: 'mineMins',    target: 15,   reward: 500 },
-  { id: 'use_turbo',      icon: '🚀', title: 'Turbo Time',      desc: 'Use Turbo mode once',          field: 'turboUsed',   target: 1,    reward: 200 },
-  { id: 'earn_100_points',icon: '💰', title: 'Point Collector', desc: 'Earn 100 points today',        field: 'pointsEarned',target: 100,  reward: 300 },
+  { id: 'mine_5_mins',    Icon: Timer,  title: 'Warm Up',        desc: 'Mine for 5 minutes',           field: 'mineMins',    target: 5,    reward: 150 },
+  { id: 'mine_15_mins',   Icon: Zap,    title: 'Power Session',   desc: 'Mine for 15 minutes',          field: 'mineMins',    target: 15,   reward: 500 },
+  { id: 'use_turbo',      Icon: Rocket, title: 'Turbo Time',      desc: 'Use Turbo mode once',          field: 'turboUsed',   target: 1,    reward: 200 },
+  { id: 'earn_100_points',Icon: Coins,  title: 'Point Collector', desc: 'Earn 100 points today',        field: 'pointsEarned',target: 100,  reward: 300 },
 ];
+
+const STREAK_ICONS = { 3: Sprout, 7: Zap, 14: Flame, 30: Crown };
 
 export default function MissionsPage() {
   const { user, fetchStats } = useUser();
@@ -49,16 +52,14 @@ export default function MissionsPage() {
       {toast && <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>}
 
       <div className="page-header">
-        <h1 className="page-title" style={{ background: 'var(--grad-gold)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', filter: 'drop-shadow(0 0 8px rgba(255,215,0,0.4))' }}>
-          📋 Missions
-        </h1>
+        <h1 className="page-title page-title-gold">Missions</h1>
         <span className="badge badge-gold">{completedCount}/{MISSIONS.length} Done</span>
       </div>
 
       {/* Streak Display */}
       {user?.streak > 0 && (
         <div className="streak-display mb-16">
-          <span className="streak-flame">🔥</span>
+          <span className="streak-flame"><Flame size={26} /></span>
           <div>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--neon-orange)' }}>
               {user.streak}-Day Streak
@@ -79,23 +80,23 @@ export default function MissionsPage() {
       {/* Claim Banner */}
       {completedCount > 0 && !missionsClaimed && (
         <div className="card card-green mb-16" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '1.8rem', marginBottom: 8 }}>🎉</div>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--neon-green)', marginBottom: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8, color: 'var(--neon-green)' }}><PartyPopper size={26} /></div>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--neon-green)', marginBottom: 6, fontWeight: 800 }}>
             {completedCount} Mission{completedCount > 1 ? 's' : ''} Complete!
           </p>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: 14 }}>
             Claim your {totalReward.toLocaleString()} pts reward
           </p>
           <button className="btn btn-green btn-full" onClick={handleClaim} disabled={claiming}>
-            {claiming ? '⏳ Claiming...' : `🎁 Claim ${totalReward.toLocaleString()} Points`}
+            {claiming ? 'Claiming...' : <><Gift size={17} /> Claim {totalReward.toLocaleString()} Points</>}
           </button>
         </div>
       )}
 
       {missionsClaimed && (
-        <div className="card mb-16" style={{ border: 'var(--border-gold)', background: 'rgba(255,215,0,0.06)', textAlign: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-gold)', fontSize: '1rem' }}>
-            ✅ Daily missions claimed! Come back tomorrow.
+        <div className="card mb-16" style={{ border: 'var(--border-gold)', background: 'rgba(245,196,81,0.06)', textAlign: 'center' }}>
+          <span style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-gold)', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800 }}>
+            <CircleCheck size={18} /> Daily missions claimed! Come back tomorrow.
           </span>
         </div>
       )}
@@ -110,15 +111,15 @@ export default function MissionsPage() {
         return (
           <div key={mission.id} className={`mission-item ${done ? 'completed' : ''}`}>
             <div className="mission-header">
-              <div className="mission-icon-wrap">
-                {mission.icon}
+              <div className="mission-icon-wrap" style={done ? { background: 'rgba(47,224,160,0.14)', borderColor: 'rgba(47,224,160,0.35)', color: 'var(--neon-green)' } : undefined}>
+                <mission.Icon size={20} />
               </div>
               <div style={{ flex: 1 }}>
                 <div className="mission-title">{mission.title}</div>
                 <div className="mission-desc">{mission.desc}</div>
               </div>
               <div className="mission-reward">
-                {done ? '✅' : `+${mission.reward}`}
+                {done ? <CircleCheck size={20} style={{ color: 'var(--neon-green)' }} /> : `+${mission.reward}`}
                 {!done && <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block' }}>pts</span>}
               </div>
             </div>
@@ -152,10 +153,10 @@ export default function MissionsPage() {
       <div className="section-label mt-16 mb-12">Streak Milestones</div>
       <div className="card" style={{ border: '1px solid rgba(255,255,255,0.07)' }}>
         {[
-          { days: 3,  bonus: '1.25x', icon: '🌱' },
-          { days: 7,  bonus: '1.5x',  icon: '⚡' },
-          { days: 14, bonus: '1.75x', icon: '🔥' },
-          { days: 30, bonus: '2x',    icon: '👑' },
+          { days: 3,  bonus: '1.25x', Icon: Sprout },
+          { days: 7,  bonus: '1.5x',  Icon: Zap },
+          { days: 14, bonus: '1.75x', Icon: Flame },
+          { days: 30, bonus: '2x',    Icon: Crown },
         ].map((milestone, i) => {
           const reached = (user?.streak || 0) >= milestone.days;
           return (
@@ -165,7 +166,7 @@ export default function MissionsPage() {
               borderBottom: i < 3 ? '1px solid rgba(255,255,255,0.06)' : 'none',
               opacity: reached ? 1 : 0.5,
             }}>
-              <span style={{ fontSize: '1.4rem' }}>{milestone.icon}</span>
+              <span style={{ display: 'inline-flex', color: reached ? 'var(--neon-gold)' : 'var(--text-muted)' }}><milestone.Icon size={22} /></span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{milestone.days}-Day Streak</div>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{milestone.bonus} reward multiplier</div>

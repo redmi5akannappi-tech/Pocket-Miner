@@ -112,8 +112,13 @@ export function UserProvider({ children }) {
       if (tg) {
         tg.ready();
         tg.expand();
-        tg.setHeaderColor('#07071a');
-        tg.setBackgroundColor('#07071a');
+        // Match the app's --bg-deep so the Telegram chrome blends seamlessly.
+        try { tg.setHeaderColor('#0b0e14'); } catch {}
+        try { tg.setBackgroundColor('#0b0e14'); } catch {}
+        // Lock vertical swipe-to-close so scrolling the page doesn't dismiss the
+        // Mini App (supported on Telegram 7.7+; guarded for older clients).
+        try { tg.disableVerticalSwipes?.(); } catch {}
+        try { tg.enableClosingConfirmation?.(); } catch {}
       }
     } catch {}
 

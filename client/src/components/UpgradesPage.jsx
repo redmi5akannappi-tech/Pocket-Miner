@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
+import { Cpu, Snowflake, Rocket, Coins, ArrowUp, Lock, Crown, Zap } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 
 const UPGRADES = [
   {
     type: 'cpu',
     name: 'CPU Processor',
-    icon: '⚙️',
+    Icon: Cpu,
     description: 'Increases hash rate by 10% per level',
     color: 'green',
     effect: (lvl) => `+${(lvl - 1) * 10}% Hash Rate`,
@@ -14,7 +15,7 @@ const UPGRADES = [
   {
     type: 'efficiency',
     name: 'Cooling System',
-    icon: '❄️',
+    Icon: Snowflake,
     description: 'Reduces CPU heat penalty per level',
     color: 'blue',
     effect: (lvl) => `+${(lvl - 1) * 8}% Efficiency`,
@@ -23,7 +24,7 @@ const UPGRADES = [
   {
     type: 'boost',
     name: 'Boost Core',
-    icon: '🚀',
+    Icon: Rocket,
     description: 'Increases reward multiplier and boost duration',
     color: 'purple',
     effect: (lvl) => `${1 + (lvl - 1) * 0.05}x Multiplier`,
@@ -102,12 +103,10 @@ export default function UpgradesPage() {
 
       {/* Header */}
       <div className="page-header">
-        <h1 className="page-title" style={{ background: 'var(--grad-purple)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', filter: 'drop-shadow(0 0 8px rgba(191,90,242,0.4))' }}>
-          🔧 Upgrades
-        </h1>
+        <h1 className="page-title page-title-purple">Upgrades</h1>
         <div style={{ textAlign: 'right' }}>
-          <span className="font-display" style={{ fontSize: '1.1rem', color: 'var(--neon-gold)' }}>
-            💰 {points.toLocaleString()}
+          <span className="font-display" style={{ fontSize: '1.1rem', color: 'var(--neon-gold)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Coins size={16} /> {points.toLocaleString()}
           </span>
           <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Your Points</div>
         </div>
@@ -116,8 +115,8 @@ export default function UpgradesPage() {
       {/* Boost Activate Banner */}
       {upgrade && !upgrade.boostActive && !upgrade.boostCooldown && (
         <div className="card card-gold mb-16" style={{ textAlign: 'center' }}>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--neon-gold)', marginBottom: 8 }}>
-            ⚡ Activate 2x Boost
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: '1.1rem', color: 'var(--neon-gold)', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 800 }}>
+            <Zap size={18} /> Activate 2x Boost
           </p>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: 14 }}>
             Double your mining rewards for {5 + ((upgrade?.boostLevel || 1) - 1)} minutes!
@@ -127,15 +126,15 @@ export default function UpgradesPage() {
             onClick={handleBoost}
             disabled={loading.boost_activate}
           >
-            {loading.boost_activate ? '⏳ Activating...' : '🚀 Activate Boost!'}
+            {loading.boost_activate ? 'Activating...' : <><Rocket size={17} /> Activate Boost</>}
           </button>
         </div>
       )}
 
       {upgrade?.boostActive && (
-        <div className="card mb-16" style={{ border: '1px solid rgba(255,215,0,0.5)', background: 'rgba(255,215,0,0.08)', textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', color: 'var(--neon-gold)' }}>
-            🔥 2x Boost ACTIVE!
+        <div className="card mb-16" style={{ border: '1px solid rgba(245,196,81,0.5)', background: 'rgba(245,196,81,0.08)', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', color: 'var(--neon-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 800 }}>
+            <Zap size={20} fill="currentColor" /> 2x Boost ACTIVE!
           </div>
           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 6 }}>
             Until: {new Date(upgrade.boostActiveUntil).toLocaleTimeString()}
@@ -151,25 +150,17 @@ export default function UpgradesPage() {
         const cost = isMaxed ? 0 : getUpgradeCost(upg.type, currentLevel);
         const canAfford = points >= cost;
         const colors = COLOR_MAP[upg.color];
+        const UpgIcon = upg.Icon;
+        const accent = upg.color === 'green' ? 'var(--neon-green)' : upg.color === 'blue' ? 'var(--neon-blue)' : 'var(--neon-purple)';
+        const tint = upg.color === 'green' ? 'rgba(47,224,160,0.12)' : upg.color === 'blue' ? 'rgba(77,184,255,0.12)' : 'rgba(139,124,255,0.12)';
+        const tintBorder = upg.color === 'green' ? 'rgba(47,224,160,0.35)' : upg.color === 'blue' ? 'rgba(77,184,255,0.35)' : 'rgba(139,124,255,0.35)';
 
         return (
-          <div key={upg.type} className={`upgrade-card`} style={{ borderColor: upg.color === 'green' ? 'rgba(57,255,20,0.35)' : upg.color === 'blue' ? 'rgba(0,212,255,0.35)' : 'rgba(191,90,242,0.35)' }}>
-            {/* Glow orb */}
-            <div style={{
-              position: 'absolute', top: -20, right: -20, width: 80, height: 80,
-              borderRadius: '50%',
-              background: upg.color === 'green' ? 'rgba(57,255,20,0.12)' : upg.color === 'blue' ? 'rgba(0,212,255,0.12)' : 'rgba(191,90,242,0.12)',
-              filter: 'blur(16px)',
-              pointerEvents: 'none'
-            }} />
-
+          <div key={upg.type} className={`upgrade-card`} style={{ borderColor: tintBorder }}>
             <div className="upgrade-header">
               <div className="upgrade-info">
-                <div className="upgrade-icon-wrap" style={{
-                  background: upg.color === 'green' ? 'rgba(57,255,20,0.12)' : upg.color === 'blue' ? 'rgba(0,212,255,0.12)' : 'rgba(191,90,242,0.12)',
-                  borderColor: upg.color === 'green' ? 'rgba(57,255,20,0.35)' : upg.color === 'blue' ? 'rgba(0,212,255,0.35)' : 'rgba(191,90,242,0.35)',
-                }}>
-                  {upg.icon}
+                <div className="upgrade-icon-wrap" style={{ background: tint, borderColor: tintBorder, color: accent }}>
+                  <UpgIcon size={24} />
                 </div>
                 <div>
                   <div className="upgrade-name">{upg.name}</div>
@@ -194,15 +185,15 @@ export default function UpgradesPage() {
               {!isMaxed && (
                 <div style={{ flex: 1, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: '8px 12px' }}>
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Next</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.9rem', color: upg.color === 'green' ? 'var(--neon-green)' : upg.color === 'blue' ? 'var(--neon-blue)' : 'var(--neon-purple)' }}>{upg.nextEffect(currentLevel)}</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.9rem', color: accent }}>{upg.nextEffect(currentLevel)}</div>
                 </div>
               )}
             </div>
 
             {/* Buy button */}
             {isMaxed ? (
-              <div style={{ textAlign: 'center', padding: '12px', background: 'rgba(255,215,0,0.08)', borderRadius: 12, border: 'var(--border-gold)' }}>
-                <span style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-gold)' }}>👑 Fully Upgraded!</span>
+              <div style={{ textAlign: 'center', padding: '12px', background: 'rgba(245,196,81,0.08)', borderRadius: 12, border: 'var(--border-gold)' }}>
+                <span style={{ fontFamily: 'var(--font-display)', color: 'var(--neon-gold)', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 800 }}><Crown size={17} /> Fully Upgraded!</span>
               </div>
             ) : (
               <button
@@ -210,8 +201,10 @@ export default function UpgradesPage() {
                 onClick={() => handleBuy(upg.type, cost)}
                 disabled={loading[upg.type] || !canAfford}
               >
-                {loading[upg.type] ? '⏳ Upgrading...' : (
-                  canAfford ? `⬆️ Upgrade — ${cost.toLocaleString()} pts` : `🔒 Need ${cost.toLocaleString()} pts`
+                {loading[upg.type] ? 'Upgrading...' : (
+                  canAfford
+                    ? <><ArrowUp size={17} /> Upgrade — {cost.toLocaleString()} pts</>
+                    : <><Lock size={15} /> Need {cost.toLocaleString()} pts</>
                 )}
               </button>
             )}

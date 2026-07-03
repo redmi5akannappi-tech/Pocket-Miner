@@ -1,27 +1,28 @@
 # render.yaml — Render Blueprint
-# Defines both backend (Web Service) and frontend (Static Site)
-# Push this to your GitHub repo root, then connect on Render → New → Blueprint
+# ONE web service that builds the React frontend and serves it from the Node
+# backend alongside the API (/api) and WebSocket (/ws) on a single origin.
+# Push to your repo root, then Render → New → Blueprint.
 
 services:
-  # ─── Backend API + WebSocket ────────────────────────────────────────────────
   - type: web
-    name: pocket-miner-api
+    name: pocket-miner
     runtime: node
-    rootDir: server
-    buildCommand: npm install
-    startCommand: node src/index.js
     plan: free
+    # Build the client (Vite → client/dist) then install server deps.
+    buildCommand: npm --prefix client install && npm --prefix client run build && npm --prefix server install
+    # Server serves client/dist + /api + /ws. Binds to $PORT (injected by Render).
+    startCommand: node server/src/index.js
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000
+      # Render injects PORT automatically; the server reads process.env.PORT.
       - key: USE_MEMORY
-        value: false           # set to true for testing without MongoDB
+        value: true            # true = run without MongoDB. Set false + MONGODB_URI to persist.
       - key: DEV_BYPASS
         value: false           # MUST be false in production (Telegram auth required)
       - key: MONGODB_URI
-        sync: false            # set manually in Render dashboard
+        sync: false            # optional — set in dashboard if USE_MEMORY=false
       - key: TELEGRAM_BOT_TOKEN
         sync: false            # set manually in Render dashboard
       - key: WALLET_ADDRESS
@@ -48,26 +49,5 @@ services:
         value: 60
       - key: MAX_HASHRATE_MH
         value: 10
-      - key: CORS_ORIGIN
-        value: https://pocket-miner.onrender.com  # update to your static site URL
-
-  # ─── Frontend Static Site ────────────────────────────────────────────────────
-  - type: web
-    name: pocket-miner
-    runtime: static
-    rootDir: client
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: no-cache
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        value: https://pocket-miner-api.onrender.com/api
-      - key: VITE_WS_URL
-        value: wss://pocket-miner-api.onrender.com/ws
+      # Frontend + backend share one origin now, so no VITE_API_URL / VITE_WS_URL
+      # (the app uses relative /api and same-host /ws) and no cross-origin CORS.

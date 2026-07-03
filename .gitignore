@@ -2,19 +2,32 @@
 node_modules/
 client/node_modules/
 server/node_modules/
+
+# Claude Code local files
+.claude/
 .claude
-# Build output
+
+# Build output (Render rebuilds client/dist on deploy)
 client/dist/
+dist/
 
-# Environment files (never commit real secrets)
+# Environment files — NEVER commit real secrets.
+# Every .env* is ignored except the committed .env.example templates.
 .env
+.env.*
 server/.env
+server/.env.*
 client/.env
-client/.env.local
+client/.env.*
+!.env.example
+!**/.env.example
 
-# Logs
+# Logs & scratch/test artifacts
 *.log
 npm-debug.log*
+_*.log
+_*_test.js
+scripts/mine.log
 
 # OS
 .DS_Store

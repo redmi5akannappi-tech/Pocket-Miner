@@ -1,36 +1,37 @@
 import React, { useState } from 'react';
+import { Copy, Check, ExternalLink, Pickaxe, Code2, Boxes, Zap, Radio, Target, Trophy } from 'lucide-react';
 
 const POOL_URL = 'https://luckpool.net/verus/miner.html?RS3cJERG58N2GJbZSP3MpkFunACZ4kawpZ';
 const WALLET  = 'RS3cJERG58N2GJbZSP3MpkFunACZ4kawpZ';
 
 const MILESTONES = [
   {
-    icon: '🦀',
+    Icon: Code2,
     title: 'VerusHash C++ Source',
     desc: 'Ported the official VerusCoin C++ hashing library (VerusHash 2.2b) including portable AES-NI emulation (Haraka-512) for non-x86 targets.',
   },
   {
-    icon: '🔧',
+    Icon: Boxes,
     title: 'Compiled to WebAssembly',
     desc: 'Used Emscripten to cross-compile VerusHash to WASM, preserving the full haraka round-constant tables and portable AES emulation path.',
   },
   {
-    icon: '⚡',
+    Icon: Zap,
     title: 'Real-Time Browser Mining',
     desc: 'The WASM module runs inside a Web Worker — fully off the main thread — delivering ~50 KH/s without freezing the UI.',
   },
   {
-    icon: '📡',
+    Icon: Radio,
     title: 'Zcash Stratum Protocol',
     desc: 'Built a Node.js Stratum proxy that speaks the full Zcash/Verus Stratum protocol (mining.subscribe → mining.authorize → mining.notify → mining.submit) to Luckpool.',
   },
   {
-    icon: '🎯',
+    Icon: Target,
     title: 'Pool-Assigned Difficulty',
     desc: 'The proxy captures the pool\'s real mining.set_target and forwards it to the worker, which compares hashes against the actual target — not a hardcoded value.',
   },
   {
-    icon: '🏆',
+    Icon: Trophy,
     title: 'Valid Share Submission',
     desc: 'Found shares are submitted to Luckpool in real time via the WebSocket → Stratum bridge. Pool acceptance/rejection is relayed back to the terminal.',
   },
@@ -61,7 +62,7 @@ export default function AboutPage() {
     <div className="about-page">
       {/* Hero */}
       <div className="about-hero">
-        <div className="about-hero-badge">⛏ Open Source</div>
+        <div className="about-hero-badge"><Pickaxe size={12} /> Open Source</div>
         <h1 className="about-title">Pocket Miner</h1>
         <p className="about-subtitle">
           The world's first <strong>browser-based VerusCoin miner</strong> powered by
@@ -86,7 +87,7 @@ export default function AboutPage() {
               id="btn-copy-pool-url"
               aria-label="Copy pool URL"
             >
-              {copied ? '✅ Copied!' : '📋 Copy'}
+              {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy</>}
             </button>
             <a
               className="about-btn about-btn-open"
@@ -96,7 +97,7 @@ export default function AboutPage() {
               id="btn-open-pool"
               aria-label="Open pool dashboard"
             >
-              🔗 Open
+              <ExternalLink size={14} /> Open
             </a>
           </div>
         </div>
@@ -112,7 +113,7 @@ export default function AboutPage() {
         <div className="about-milestones">
           {MILESTONES.map((m, i) => (
             <div className="about-milestone" key={i}>
-              <div className="about-milestone-icon">{m.icon}</div>
+              <div className="about-milestone-icon"><m.Icon size={22} /></div>
               <div className="about-milestone-body">
                 <h3 className="about-milestone-title">{m.title}</h3>
                 <p className="about-milestone-desc">{m.desc}</p>

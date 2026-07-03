@@ -1,29 +1,36 @@
 import React from 'react';
+import { Pickaxe, Cpu, Wallet, Target, Trophy, Info } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Mine',     icon: '⛏️' },
-  { id: 'upgrades',  label: 'Upgrades', icon: '🔧' },
-  { id: 'rewards',   label: 'Rewards',  icon: '💰' },
-  { id: 'missions',  label: 'Missions', icon: '📋' },
-  { id: 'leaderboard', label: 'Ranks',  icon: '🏆' },
-  { id: 'about',     label: 'About',    icon: 'ℹ️' },
+  { id: 'dashboard',   label: 'Mine',     Icon: Pickaxe },
+  { id: 'upgrades',    label: 'Upgrades', Icon: Cpu },
+  { id: 'rewards',     label: 'Rewards',  Icon: Wallet },
+  { id: 'missions',    label: 'Missions', Icon: Target },
+  { id: 'leaderboard', label: 'Ranks',    Icon: Trophy },
+  { id: 'about',       label: 'About',    Icon: Info },
 ];
 
 export default function BottomNav({ activePage, onNavigate }) {
   return (
     <nav className="bottom-nav" role="navigation" aria-label="Main navigation">
-      {NAV_ITEMS.map((item) => (
-        <button
-          key={item.id}
-          className={`nav-item ${activePage === item.id ? 'active' : ''}`}
-          onClick={() => onNavigate(item.id)}
-          aria-label={item.label}
-          id={`nav-${item.id}`}
-        >
-          <span className="nav-icon" role="img" aria-hidden="true">{item.icon}</span>
-          <span className="nav-label">{item.label}</span>
-        </button>
-      ))}
+      {NAV_ITEMS.map(({ id, label, Icon }) => {
+        const active = activePage === id;
+        return (
+          <button
+            key={id}
+            className={`nav-item ${active ? 'active' : ''}`}
+            onClick={() => onNavigate(id)}
+            aria-label={label}
+            aria-current={active ? 'page' : undefined}
+            id={`nav-${id}`}
+          >
+            <span className="nav-icon" aria-hidden="true">
+              <Icon size={22} strokeWidth={active ? 2.4 : 2} />
+            </span>
+            <span className="nav-label">{label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

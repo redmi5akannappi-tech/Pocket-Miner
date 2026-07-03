@@ -1,62 +1,66 @@
 /* ============================================================
    POCKET MINER — Global Design System
-   Cartoonish Gaming UI · Dark Space Theme · Neon Glow
+   Modern Crypto Dark · Flat surfaces · One accent · Mobile-first
+   (Uses the system font stack — no web-font network round-trip.)
    ============================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap');
 
 /* ─── CSS Variables ─────────────────────────────────────── */
 :root {
-  /* Colors */
-  --bg-deep:       #07071a;
-  --bg-card:       #12123a;
-  --bg-card-2:     #1a1a4a;
-  --bg-glass:      rgba(18,18,58,0.85);
+  /* Colors — deep neutral dark, layered surfaces */
+  --bg-deep:       #0b0e14;
+  --bg-card:       #151a22;
+  --bg-card-2:     #1b212c;
+  --bg-glass:      #151a22;
 
-  --neon-green:    #39ff14;
-  --neon-purple:   #bf5af2;
-  --neon-blue:     #00d4ff;
-  --neon-gold:     #ffd700;
-  --neon-red:      #ff4466;
-  --neon-orange:   #ff8c00;
+  /* Accent palette (green = brand; others are muted, harmonized categories) */
+  --neon-green:    #2fe0a0;   /* primary accent (mint) */
+  --neon-purple:   #8b7cff;
+  --neon-blue:     #4db8ff;
+  --neon-gold:     #f5c451;
+  --neon-red:      #ff5c72;
+  --neon-orange:   #ff9d4d;
 
-  --text-primary:  #f0f0ff;
-  --text-muted:    #8888bb;
-  --text-dim:      #555588;
+  --text-primary:  #e6e9ef;
+  --text-muted:    #8b93a7;
+  --text-dim:      #5b6172;
 
-  /* Borders */
-  --border-green:  1px solid rgba(57,255,20,0.35);
-  --border-purple: 1px solid rgba(191,90,242,0.35);
-  --border-gold:   1px solid rgba(255,215,0,0.35);
-  --border-blue:   1px solid rgba(0,212,255,0.35);
+  /* Borders — subtle accent-tinted hairlines */
+  --border-green:  1px solid rgba(47,224,160,0.30);
+  --border-purple: 1px solid rgba(139,124,255,0.30);
+  --border-gold:   1px solid rgba(245,196,81,0.30);
+  --border-blue:   1px solid rgba(77,184,255,0.30);
+  --hairline:      1px solid rgba(255,255,255,0.08);
 
-  /* Glows */
-  --glow-green:    0 0 18px rgba(57,255,20,0.45), 0 0 40px rgba(57,255,20,0.15);
-  --glow-purple:   0 0 18px rgba(191,90,242,0.45), 0 0 40px rgba(191,90,242,0.15);
-  --glow-gold:     0 0 18px rgba(255,215,0,0.45), 0 0 40px rgba(255,215,0,0.15);
-  --glow-blue:     0 0 18px rgba(0,212,255,0.45), 0 0 40px rgba(0,212,255,0.15);
-  --glow-red:      0 0 18px rgba(255,68,102,0.45);
+  /* "Glows" are now soft neutral elevation (no neon). Kept var names for reuse. */
+  --glow-green:    0 6px 20px rgba(0,0,0,0.35);
+  --glow-purple:   0 6px 20px rgba(0,0,0,0.35);
+  --glow-gold:     0 6px 20px rgba(0,0,0,0.35);
+  --glow-blue:     0 6px 20px rgba(0,0,0,0.35);
+  --glow-red:      0 6px 20px rgba(0,0,0,0.35);
+  --shadow-card:   0 1px 2px rgba(0,0,0,0.30), 0 6px 18px rgba(0,0,0,0.22);
+  --shadow-pop:    0 10px 32px rgba(0,0,0,0.45);
+  --accent-soft:   0 6px 22px rgba(47,224,160,0.28);
 
   /* Gradients */
-  --grad-green:   linear-gradient(135deg, #39ff14, #00d4ff);
-  --grad-purple:  linear-gradient(135deg, #bf5af2, #7b2ff7);
-  --grad-gold:    linear-gradient(135deg, #ffd700, #ff8c00);
-  --grad-dark:    linear-gradient(180deg, #12123a 0%, #07071a 100%);
-  --grad-card:    linear-gradient(135deg, rgba(26,26,74,0.9), rgba(18,18,58,0.9));
+  --grad-green:   linear-gradient(135deg, #2fe0a0, #4db8ff);
+  --grad-purple:  linear-gradient(135deg, #8b7cff, #6b5cff);
+  --grad-gold:    linear-gradient(135deg, #f5c451, #ff9d4d);
+  --grad-dark:    linear-gradient(180deg, #151a22 0%, #0b0e14 100%);
+  --grad-card:    linear-gradient(180deg, #171d26, #141922);
 
-  /* Typography */
-  --font-display: 'Fredoka One', cursive;
-  --font-body:    'Nunito', sans-serif;
+  /* Typography — system stack (fast, native feel on mobile/Telegram) */
+  --font-display: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-body:    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 
   /* Spacing */
-  --nav-height:   68px;
+  --nav-height:   64px;
   --radius-sm:    12px;
-  --radius-md:    18px;
-  --radius-lg:    24px;
-  --radius-xl:    32px;
+  --radius-md:    16px;
+  --radius-lg:    20px;
+  --radius-xl:    24px;
 
   /* Transitions */
-  --ease-bounce:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-bounce:  cubic-bezier(0.34, 1.4, 0.64, 1);
   --ease-smooth:  cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -1220,5 +1224,216 @@ body {
   font-size: 12px;
   color: var(--text-dim);
   padding: 8px 0 4px;
+}
+
+/* ============================================================
+   MODERN LAYER — flattens the old neon/blur effects, tunes the
+   system font, and polishes for mobile/Telegram. Loaded last so
+   it wins the cascade over the base rules above.
+   ============================================================ */
+
+/* Display/numeric elements need explicit weight with a system font. */
+.page-title, .about-title, .balance-big, .stat-value, .mine-btn-label,
+.streak-count, .leaderboard-points, .rank-badge, .upgrade-name,
+.mission-title, .mission-reward, .about-section-title, .section-label {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.balance-big, .stat-value, .leaderboard-points, .mission-reward,
+.about-tech-value, .streak-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flat cards — drop the blur + inner sheen, add soft elevation. */
+.card {
+  background: var(--bg-card);
+  border: var(--hairline);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.card::before { display: none; }
+.card-green, .card-purple, .card-gold, .card-blue { box-shadow: var(--shadow-card); }
+
+/* Titles — gradient text, no neon drop-shadow. */
+.page-title, .about-title { filter: none; }
+
+/* Balance — clean solid accent instead of glowing gold. */
+.balance-big {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--text-primary);
+  filter: none;
+  font-size: 2.6rem;
+}
+
+/* Background — static, subtle, no twinkle animation. */
+.stars-bg {
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(47,224,160,0.06), transparent 55%),
+    var(--bg-deep);
+}
+.stars-bg::before { display: none; }
+
+/* Bottom nav — solid, hairline, no blur. */
+.bottom-nav {
+  background: rgba(11,14,20,0.96);
+  border-top: var(--hairline);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.nav-item.active::before { background: var(--neon-green); box-shadow: none; width: 20px; }
+.nav-item.active .nav-icon { filter: none; transform: none; }
+
+/* Segmented mode selector — clean filled active state, no glow. */
+.mode-btn { background: var(--bg-card); border: var(--hairline); }
+.mode-btn.active.eco,
+.mode-btn.active.balanced,
+.mode-btn.active.turbo,
+.mode-btn.active.red { box-shadow: none; }
+.mode-btn.active.eco      { border-color: var(--neon-green);  background: rgba(47,224,160,0.12);  color: var(--neon-green); }
+.mode-btn.active.balanced { border-color: var(--neon-blue);   background: rgba(77,184,255,0.12);  color: var(--neon-blue); }
+.mode-btn.active.turbo    { border-color: var(--neon-orange); background: rgba(255,157,77,0.12);  color: var(--neon-orange); }
+.mode-btn.active.red      { border-color: var(--neon-red);    background: rgba(255,92,114,0.12);  color: var(--neon-red); }
+
+/* Primary mine button — flat accent fill, one soft shadow, gentle pulse. */
+.mine-btn { width: 168px; height: 168px; }
+.mine-btn.idle {
+  background: radial-gradient(circle at 42% 34%, #45e9ae, #1fb383);
+  box-shadow: var(--accent-soft), 0 10px 30px rgba(0,0,0,0.45);
+}
+.mine-btn.mining {
+  background: radial-gradient(circle at 42% 34%, #ff6f83, #e23a55);
+  box-shadow: 0 6px 22px rgba(255,92,114,0.28), 0 10px 30px rgba(0,0,0,0.45);
+  animation: miningPulseSoft 1.8s ease-in-out infinite;
+}
+@keyframes miningPulseSoft {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.035); }
+}
+.mine-btn-label { text-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+
+/* Primary button keeps a subtle accent lift; others just flatten. */
+.btn::after { display: none; }
+.btn-green { color: #06231a; box-shadow: var(--accent-soft); }
+
+/* Rig emoji — no neon drop-shadow. */
+.rig-emoji, .rig-emoji.mining-anim { filter: none; }
+
+/* About/pool accents — soft, not glowing. */
+.about-pool-card { box-shadow: var(--shadow-card); }
+.about-pool-dot { box-shadow: none; }
+.about-flow-num { box-shadow: none; }
+.level-pip.filled { box-shadow: none; }
+.rank-1 { filter: none; }
+
+/* Nicer thin scrollbar + selection in the new palette. */
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); }
+::selection { background: rgba(47,224,160,0.30); }
+
+/* Respect reduced-motion (accessibility + battery on mobile). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Safe-area padding for notched phones / Telegram fullscreen. */
+.app-shell { padding-top: env(safe-area-inset-top); }
+
+/* ============================================================
+   ICON LAYER — aligns inline lucide SVG icons everywhere they
+   replaced emoji, adds status dots, title color variants, and
+   the refreshed mine-button. Loaded last so it wins the cascade.
+   ============================================================ */
+
+/* Lucide renders an inline <svg> with currentColor stroke. Make every
+   icon slot a proper flex box so glyphs sit centered, not baseline-offset. */
+svg.lucide { display: block; flex-shrink: 0; }
+
+.stat-icon,
+.mode-btn-icon,
+.nav-icon,
+.mine-btn-icon,
+.streak-flame,
+.upgrade-icon-wrap,
+.mission-icon-wrap,
+.about-milestone-icon,
+.about-hero-badge,
+.about-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* Icons inherit the accent color of their card via currentColor. */
+.stat-card.green  .stat-icon { color: var(--neon-green); }
+.stat-card.blue   .stat-icon { color: var(--neon-blue); }
+.stat-card.gold   .stat-icon { color: var(--neon-gold); }
+.stat-card.purple .stat-icon { color: var(--neon-purple); }
+.stat-icon { margin-bottom: 8px; }
+
+.mode-btn-icon { margin-bottom: 6px; color: currentColor; }
+.streak-flame { color: var(--neon-orange); }
+
+/* Buttons that now contain an icon + label: keep them on one row, centered. */
+.btn { gap: 8px; }
+.btn svg { flex-shrink: 0; }
+.badge { align-items: center; }
+.badge svg { flex-shrink: 0; }
+
+/* Page-title color variants (replaces per-page inline gradient styles). */
+.page-title { background: none; -webkit-text-fill-color: currentColor; color: var(--text-primary); filter: none; }
+.page-title-green  { color: var(--neon-green); }
+.page-title-purple { color: var(--neon-purple); }
+.page-title-gold   { color: var(--neon-gold); }
+
+/* Status dot inside Ready/Mining badge — replaces the 🔴/🟢 emoji. */
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.status-dot.ready { background: var(--neon-green); }
+.status-dot.live  { background: var(--neon-red); animation: dotPulse 1.4s ease-in-out infinite; }
+@keyframes dotPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ─── Refreshed Mine Button ─────────────────────────────── */
+.mine-btn { color: #fff; gap: 4px; }
+.mine-btn-icon { color: #fff; margin-bottom: 2px; }
+.mine-btn-sub {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.mine-btn-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.14);
+  pointer-events: none;
+}
+.mine-btn.mining .mine-btn-ring { border-color: rgba(255,255,255,0.22); }
+
+/* Upgrade / mission icon wraps now hold an SVG, not an emoji glyph. */
+.upgrade-icon-wrap svg,
+.mission-icon-wrap svg { display: block; }
+
+/* Tap targets — comfortable minimum for mobile/Telegram thumbs. */
+.nav-item { min-height: 48px; }
+.mode-btn { min-height: 64px; }
+
+/* Inputs pick up the accent ring on focus (nicer than default outline). */
+input:focus { border-color: var(--neon-green) !important; }
+
+/* On very small phones, tighten the page gutters a touch. */
+@media (max-width: 360px) {
+  .page-content { padding-left: 12px; padding-right: 12px; }
+  .stats-grid { gap: 10px; }
 }
 
