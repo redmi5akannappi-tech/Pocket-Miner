@@ -1,6 +1,6 @@
 # VerusHash WASM Miner — Optimization Notes
 
-> Context doc so future sessions (and other chats) don't re-derive this. Last updated 2026-07-04.
+> Context doc so future sessions (and other chats) don't re-derive this. Last updated 2026-07-04 (part 2: T-table CLHash AES).
 
 ## What this project is
 Browser VerusCoin miner. Computes **VerusHash 2.2** in WASM, submits pool-accepted
@@ -37,6 +37,27 @@ Goal: speed up hashing while **keeping the original path** (user wants both, aut
 - **Fixed 10× hashrate display bug**: worker now posts a true per-second H/s
   (`hashCount / elapsedSeconds`) instead of the raw count over the 10 s report window.
 
+## What was changed (2026-07-04, part 2) — T-table AES (option #2)
+- Rewrote the emulated **`_mm_aesenc_si128`** (SubBytes+ShiftRows+MixColumns) as a
+  4×256 combined **T-table** lookup. Each output column = `T0[b0]^T1[b1]^T2[b2]^T3[b3]^rk`
+  (4 loads + XORs) instead of 16 S-box lookups + per-byte GF `xtime` MixColumns.
+  Tables are built once (lazy `_tt_init`) from the existing S-box.
+- Edited in **two** heredocs of `scripts/compile-verus-wasm.sh`: the `PATCH_CPP`
+  block (prepended to `verus_clhash_portable.cpp`) AND the `x86intrin.h` stub. Both
+  copies were byte-identical; `_mm_aesenclast_si128` was left textbook (last round
+  has no MixColumns, so a T-table gives no benefit there).
+- ⚠️ **Incremental-build gotcha**: the script only prepends `PATCH_CPP` to
+  `verus_clhash_portable.cpp` if it isn't already patched. A stale `.build/wasm_patch/`
+  from a prior build keeps the OLD textbook AES. I patched the existing
+  `.build/.../verus_clhash_portable.cpp` in place so the next build is correct, but
+  for certainty do a **clean rebuild**: `rm -rf scripts/.build/wasm_patch` then
+  `bash compile-verus-wasm.sh`. (`x86intrin.h` is regenerated every build, so it's
+  always fresh.)
+- **Correctness**: the T-table is provably bit-identical to the textbook AES round —
+  validated over 500k random + edge-case `(state, roundkey)` pairs by the new
+  `scripts/aes_ttable_check.js` (pure node, no emcc needed). Because outputs are
+  identical, `verify_batch.js` and pool acceptance are unaffected.
+
 ## Files
 - `scripts/compile-verus-wasm.sh` — builds BOTH binaries. **Generates its own
   `verus_wrapper.cpp` inline via heredoc and compiles THAT** — the checked-in
@@ -45,6 +66,7 @@ Goal: speed up hashing while **keeping the original path** (user wants both, aut
   (original, unchanged) + `mineLoop()` dispatcher + SIMD detection.
 - `client/src/hooks/useMiner.js` — sums per-worker H/s, `formatHashrate` expects H/s.
 - `scripts/verify_batch.js`, `scripts/bench_wasm.js` — local test/bench (see below).
+- `scripts/aes_ttable_check.js` — proves the T-table AES round ≡ textbook (pure node).
 
 ## Build gotchas (WSL)
 - Needs `emcc` (EMSDK). User builds in WSL: `cd .../scripts && bash compile-verus-wasm.sh`.
@@ -80,8 +102,15 @@ crypto — ~10–30× slower than the CPU's idle hardware AES units. Native i7-1
 
 Improvement options, ranked reward÷effort:
 1. `-O3` + inlining (done). 
-2. **T-table software AES** (~1.5–2.5×, moderate) — replace textbook S-box+xtime
-   MixColumns with 4 combined 1 KB T-tables. Best bang for buck. NOT yet done.
+2. **T-table software AES** (done 2026-07-04, part 2) — replace textbook S-box+xtime
+   MixColumns with 4 combined 256-entry T-tables. ⚠️ REALITY CHECK: the note above
+   over-estimated this (~1.5–2.5×) because it assumed textbook AES everywhere. In
+   fact the **bulk Haraka path was ALREADY T-tabled** upstream (`aesenc()` in
+   `haraka_portable.c` uses `saes_table[4][256]`), doing ~1840 AES rounds/hash. The
+   only textbook AES left was the emulated `_mm_aesenc_si128` used by the **CLHash
+   finalize** path (`AES2_EMU`, a much smaller fraction of per-hash cost). That is
+   now T-tabled too — so all software AES in the build uses T-tables — but the
+   realistic speedup is **low single-digit %**, not 1.5–2.5×. Bench to confirm.
 3. **Bitsliced / N-way SIMD AES** (~2–4×, high effort) — process 4–8 nonces per 128-bit
    lane with a gate-logic S-box (no table gathers). The real path to "fast". NOT done.
 4. SIMD-emulated CLMUL for CLHash (some %, moderate–high). NOT done.
@@ -89,5 +118,14 @@ Not worth it: WebGPU (Verus is GPU-resistant), waiting for WASM AES opcodes.
 Realistic ceiling even after 2–4: ~0.8–1.2 MH/s — still below native.
 
 ## Open next steps
-- Rebuild + hard-refresh to pick up: best-hash display, `-O3` baseline, honest label.
-- If user wants more speed: implement **T-table AES** (#2) first; validate with verify_batch.js.
+- **Rebuild + hard-refresh** to pick up: best-hash display, `-O3` baseline, honest
+  label, AND the T-table CLHash AES (part 2). Prefer a **clean** rebuild
+  (`rm -rf scripts/.build/wasm_patch`) so the CLHash cpp is regenerated with the
+  T-table from the updated compile script.
+- After rebuild: `node scripts/verify_batch.js` (must still pass — output is
+  bit-identical) then `node scripts/bench_wasm.js` to measure the actual delta from
+  the CLHash T-table (expected: low single-digit %, since Haraka was already T-tabled).
+- If user wants a real speedup: option #2 is now exhausted (all AES is T-tabled).
+  The next lever is **#3 bitsliced / N-way SIMD AES** — that's where the 2–4× lives,
+  but it's high effort and needs the `-msimd128` turbo binary. Validate with
+  `aes_ttable_check.js`-style equivalence harness before wiring in.

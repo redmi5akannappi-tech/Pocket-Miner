@@ -134,21 +134,32 @@ static inline __m128i _mm_aesenc_si128(__m128i a, __m128i rk) {
         0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
         0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
     };
-    uint8_t s[16];
-    for (int i = 0; i < 16; i++) s[i] = sbox[a.u8[i]];
-    uint8_t t[16];
-    t[0] = s[0];   t[1] = s[5];   t[2] = s[10];  t[3] = s[15];
-    t[4] = s[4];   t[5] = s[9];   t[6] = s[14];  t[7] = s[3];
-    t[8] = s[8];   t[9] = s[13];  t[10] = s[2];  t[11] = s[7];
-    t[12] = s[12]; t[13] = s[1];  t[14] = s[6];  t[15] = s[11];
-    __m128i r;
-    for (int c = 0; c < 4; c++) {
-        uint8_t a0 = t[c*4], a1 = t[c*4+1], a2 = t[c*4+2], a3 = t[c*4+3];
-        r.u8[c*4]   = _wasm_xtime(a0) ^ _wasm_xtime(a1) ^ a1 ^ a2 ^ a3 ^ rk.u8[c*4];
-        r.u8[c*4+1] = a0 ^ _wasm_xtime(a1) ^ _wasm_xtime(a2) ^ a2 ^ a3 ^ rk.u8[c*4+1];
-        r.u8[c*4+2] = a0 ^ a1 ^ _wasm_xtime(a2) ^ _wasm_xtime(a3) ^ a3 ^ rk.u8[c*4+2];
-        r.u8[c*4+3] = _wasm_xtime(a0) ^ a0 ^ a1 ^ a2 ^ _wasm_xtime(a3) ^ rk.u8[c*4+3];
+    /* T-table AES round (option #2): fold SubBytes + ShiftRows + MixColumns into
+     * 4 combined 256-entry lookup tables, built once from the S-box. Replaces the
+     * per-byte S-box + xtime MixColumns with 4 table loads + XORs per column.
+     * Bit-identical to the textbook path (verified vs. reference over 500k inputs
+     * in scripts/aes_ttable_check.js). u32/u8 union aliasing is valid — WASM is
+     * little-endian. Used by the CLHash finalize path (AES2_EMU); the bulk Haraka
+     * loop already uses its own T-table (aesenc() in haraka_portable.c). */
+    static uint32_t T0[256], T1[256], T2[256], T3[256];
+    static int _tt_init = 0;
+    if (!_tt_init) {
+        for (int x = 0; x < 256; x++) {
+            uint8_t sv = sbox[x];
+            uint8_t s2 = _wasm_xtime(sv);
+            uint8_t s3 = (uint8_t)(s2 ^ sv);
+            T0[x] = (uint32_t)s2 | ((uint32_t)sv << 8) | ((uint32_t)sv << 16) | ((uint32_t)s3 << 24);
+            T1[x] = (uint32_t)s3 | ((uint32_t)s2 << 8) | ((uint32_t)sv << 16) | ((uint32_t)sv << 24);
+            T2[x] = (uint32_t)sv | ((uint32_t)s3 << 8) | ((uint32_t)s2 << 16) | ((uint32_t)sv << 24);
+            T3[x] = (uint32_t)sv | ((uint32_t)sv << 8) | ((uint32_t)s3 << 16) | ((uint32_t)s2 << 24);
+        }
+        _tt_init = 1;
     }
+    __m128i r;
+    r.u32[0] = T0[a.u8[0]]  ^ T1[a.u8[5]]  ^ T2[a.u8[10]] ^ T3[a.u8[15]] ^ rk.u32[0];
+    r.u32[1] = T0[a.u8[4]]  ^ T1[a.u8[9]]  ^ T2[a.u8[14]] ^ T3[a.u8[3]]  ^ rk.u32[1];
+    r.u32[2] = T0[a.u8[8]]  ^ T1[a.u8[13]] ^ T2[a.u8[2]]  ^ T3[a.u8[7]]  ^ rk.u32[2];
+    r.u32[3] = T0[a.u8[12]] ^ T1[a.u8[1]]  ^ T2[a.u8[6]]  ^ T3[a.u8[11]] ^ rk.u32[3];
     return r;
 }
 
@@ -543,21 +554,32 @@ static inline __m128i _mm_aesenc_si128(__m128i a, __m128i rk) {
         0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
         0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16
     };
-    uint8_t s[16];
-    for (int i = 0; i < 16; i++) s[i] = sbox[a.u8[i]];
-    uint8_t t[16];
-    t[0] = s[0];   t[1] = s[5];   t[2] = s[10];  t[3] = s[15];
-    t[4] = s[4];   t[5] = s[9];   t[6] = s[14];  t[7] = s[3];
-    t[8] = s[8];   t[9] = s[13];  t[10] = s[2];  t[11] = s[7];
-    t[12] = s[12]; t[13] = s[1];  t[14] = s[6];  t[15] = s[11];
-    __m128i r;
-    for (int c = 0; c < 4; c++) {
-        uint8_t a0 = t[c*4], a1 = t[c*4+1], a2 = t[c*4+2], a3 = t[c*4+3];
-        r.u8[c*4]   = _wasm_xtime(a0) ^ _wasm_xtime(a1) ^ a1 ^ a2 ^ a3 ^ rk.u8[c*4];
-        r.u8[c*4+1] = a0 ^ _wasm_xtime(a1) ^ _wasm_xtime(a2) ^ a2 ^ a3 ^ rk.u8[c*4+1];
-        r.u8[c*4+2] = a0 ^ a1 ^ _wasm_xtime(a2) ^ _wasm_xtime(a3) ^ a3 ^ rk.u8[c*4+2];
-        r.u8[c*4+3] = _wasm_xtime(a0) ^ a0 ^ a1 ^ a2 ^ _wasm_xtime(a3) ^ rk.u8[c*4+3];
+    /* T-table AES round (option #2): fold SubBytes + ShiftRows + MixColumns into
+     * 4 combined 256-entry lookup tables, built once from the S-box. Replaces the
+     * per-byte S-box + xtime MixColumns with 4 table loads + XORs per column.
+     * Bit-identical to the textbook path (verified vs. reference over 500k inputs
+     * in scripts/aes_ttable_check.js). u32/u8 union aliasing is valid — WASM is
+     * little-endian. Used by the CLHash finalize path (AES2_EMU); the bulk Haraka
+     * loop already uses its own T-table (aesenc() in haraka_portable.c). */
+    static uint32_t T0[256], T1[256], T2[256], T3[256];
+    static int _tt_init = 0;
+    if (!_tt_init) {
+        for (int x = 0; x < 256; x++) {
+            uint8_t sv = sbox[x];
+            uint8_t s2 = _wasm_xtime(sv);
+            uint8_t s3 = (uint8_t)(s2 ^ sv);
+            T0[x] = (uint32_t)s2 | ((uint32_t)sv << 8) | ((uint32_t)sv << 16) | ((uint32_t)s3 << 24);
+            T1[x] = (uint32_t)s3 | ((uint32_t)s2 << 8) | ((uint32_t)sv << 16) | ((uint32_t)sv << 24);
+            T2[x] = (uint32_t)sv | ((uint32_t)s3 << 8) | ((uint32_t)s2 << 16) | ((uint32_t)sv << 24);
+            T3[x] = (uint32_t)sv | ((uint32_t)sv << 8) | ((uint32_t)s3 << 16) | ((uint32_t)s2 << 24);
+        }
+        _tt_init = 1;
     }
+    __m128i r;
+    r.u32[0] = T0[a.u8[0]]  ^ T1[a.u8[5]]  ^ T2[a.u8[10]] ^ T3[a.u8[15]] ^ rk.u32[0];
+    r.u32[1] = T0[a.u8[4]]  ^ T1[a.u8[9]]  ^ T2[a.u8[14]] ^ T3[a.u8[3]]  ^ rk.u32[1];
+    r.u32[2] = T0[a.u8[8]]  ^ T1[a.u8[13]] ^ T2[a.u8[2]]  ^ T3[a.u8[7]]  ^ rk.u32[2];
+    r.u32[3] = T0[a.u8[12]] ^ T1[a.u8[1]]  ^ T2[a.u8[6]]  ^ T3[a.u8[11]] ^ rk.u32[3];
     return r;
 }
 
