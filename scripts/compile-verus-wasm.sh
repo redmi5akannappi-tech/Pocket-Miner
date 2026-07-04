@@ -808,12 +808,39 @@ int32_t verus_hash_batch(uint8_t *input, uint32_t input_len,
     uint8_t *noncep = input + nonce_offset;
     uint8_t hash[32];
     uint8_t best[32]; memset(best, 0xFF, 32);   /* worst possible → any hash is lower */
+
+    /* ── Midstate (sponge prefix cache) ──────────────────────────────────────
+     * Bytes [0, nonce_offset) are constant across the whole batch — only the
+     * counting nonce at nonce_offset changes — so the Write sponge over the
+     * largest 32-byte-aligned prefix is identical every iteration (~46 of 47
+     * haraka512/hash here). Absorb it ONCE, snapshot the 32-byte chaining value,
+     * then per-nonce resume from it and absorb only the tail (bytes [prefix,end),
+     * which contains the nonce). Bit-identical to a full Write: after an aligned
+     * prefix curPos==0 and only curBuf[0:32] carries forward; the stale
+     * curBuf[32:64] is fully overwritten by the tail Write + Finalize2b's
+     * FillExtra, so it can't affect the result. verify_batch.js is the gate. */
+    uint32_t prefix_len = (nonce_offset / 32) * 32;
+    bool use_mid = (prefix_len >= 32 && prefix_len <= input_len && prefix_len <= nonce_offset);
+    uint8_t midstate[32];
+    if (use_mid) {
+        hasher->Reset();
+        hasher->Write(input, prefix_len);
+        memcpy(midstate, hasher->CurBuffer(), 32);   /* chaining value; curPos==0 */
+    }
+    const uint8_t *tail = input + prefix_len;
+    uint32_t tail_len = input_len - prefix_len;
+
     for (uint32_t i = 0; i < iterations; i++) {
         /* Increment first: the initial (random) nonce is never hashed directly,
          * matching the JS loop which increments before hashing. */
         inc_le(noncep, inc_len);
         hasher->Reset();
-        hasher->Write(input, input_len);
+        if (use_mid) {
+            memcpy(hasher->CurBuffer(), midstate, 32);   /* resume from snapshot */
+            hasher->Write(tail, tail_len);               /* absorb only the tail */
+        } else {
+            hasher->Write(input, input_len);
+        }
         hasher->Finalize2b(hash);
         if (is_lower(hash, best)) memcpy(best, hash, 32);
         if (meets_target(hash, target)) {
@@ -910,6 +937,62 @@ if ! grep -q 'HARAKA_SIMD_AESENC_PATCH' "$PATCH/haraka_portable.c"; then
     echo "✅ Injected SIMD vpaes aesenc into haraka_portable.c (turbo build)"
 else
     echo "✅ haraka_portable.c already has SIMD aesenc patch — skipping"
+fi
+
+# ── Stage 2: N-way bitsliced Haraka (turbo binary only) ─────────────────────
+# Adds haraka512_port_x2 (2 states/8 blocks) + haraka256_port_x4 (4 states/8
+# blocks) + self-test exports. 1:1 port of the node-validated scripts/
+# bitslice_cmodel.js. Appended (not replacing aesenc) so the single-block scalar
+# path is untouched; the batch loop calls these directly. Guarded __wasm_simd128__
+# so the baseline build never sees the SIMD intrinsics.
+cp "$ROOT/haraka_bitslice.inc" "$PATCH/haraka_bitslice.inc"
+cp "$ROOT/haraka_bitslice.inc" "$PATCH/crypto/haraka_bitslice.inc" 2>/dev/null || true
+if ! grep -q 'HARAKA_BITSLICE_PATCH' "$PATCH/haraka_portable.c"; then
+    cat >> "$PATCH/haraka_portable.c" << 'EOF'
+
+/* HARAKA_BITSLICE_PATCH */
+#ifdef __wasm_simd128__
+#include "haraka_bitslice.inc"
+#endif
+EOF
+    cp "$PATCH/haraka_portable.c" "$PATCH/crypto/haraka_portable.c" 2>/dev/null || true
+    echo "✅ Appended bitsliced Haraka (x2/x4 + self-test) to turbo build"
+else
+    echo "✅ haraka_portable.c already has bitslice patch — skipping (inc re-copied)"
+fi
+
+# ── CLHash: SIMD _mm_mulhrs_epi16_emu (turbo only) ──────────────────────────
+# The only CLHash hot-loop op WASM SIMD can accelerate: the scalar 8-lane int16
+# mulhrs loop → i32x4 extmul (exact 16×16→32) + round + arith>>15 + WRAP-narrow.
+# Validated bit-exact (incl. the -32768² wrap corner) by scripts/clmul_simd_check.js.
+# (clmul CANNOT be vectorized — no WASM PCLMULQDQ, gather-unfriendly; see notes.)
+# NOTE: -O3 -msimd128 may already auto-vectorize this loop; bench_wasm.js is the
+# arbiter of whether the manual version helps. Baseline keeps the scalar path.
+if ! grep -q 'MULHRS_SIMD_PATCH' "$PATCH/verus_clhash_portable.cpp"; then
+    awk '
+      NR==1 { print "#ifdef __wasm_simd128__"; print "#include <wasm_simd128.h>"; print "#endif"; print "/* MULHRS_SIMD_PATCH */"; }
+      /_mm_mulhrs_epi16_emu\(__m128i _a, __m128i _b\)$/ && !done {
+          print; getline brace; print brace;                 # signature + "{"
+          print "#ifdef __wasm_simd128__";
+          print "    {";
+          print "        v128_t _va = wasm_v128_load(&_a), _vb = wasm_v128_load(&_b);";
+          print "        v128_t _lo = wasm_i32x4_extmul_low_i16x8(_va, _vb);";
+          print "        v128_t _hi = wasm_i32x4_extmul_high_i16x8(_va, _vb);";
+          print "        v128_t _k  = wasm_i32x4_splat(0x4000);";
+          print "        _lo = wasm_i32x4_shr(wasm_i32x4_add(_lo, _k), 15);";
+          print "        _hi = wasm_i32x4_shr(wasm_i32x4_add(_hi, _k), 15);";
+          print "        v128_t _p = wasm_i16x8_shuffle(_lo, _hi, 0,2,4,6, 8,10,12,14);";  # wrap-narrow low16 of each i32
+          print "        u128 _r; wasm_v128_store(&_r, _p); return _r;";
+          print "    }";
+          print "#endif";
+          done=1; next;
+      }
+      { print }
+    ' "$PATCH/verus_clhash_portable.cpp" > "$PATCH/verus_clhash_portable.cpp.tmp" \
+      && mv "$PATCH/verus_clhash_portable.cpp.tmp" "$PATCH/verus_clhash_portable.cpp"
+    echo "✅ Injected SIMD _mm_mulhrs_epi16_emu into verus_clhash_portable.cpp (turbo build)"
+else
+    echo "✅ verus_clhash_portable.cpp already has mulhrs SIMD patch — skipping"
 fi
 
 # ── compile ─────────────────────────────────────────────────────────────────

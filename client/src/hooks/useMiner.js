@@ -105,7 +105,8 @@ export function useMiner() {
       // Spawn multiple Web Workers
       const workers = [];
       for (let t = 0; t < numThreads; t++) {
-        const worker = new Worker('/miner.worker.js');
+        // Cache bust the worker file so Telegram doesn't load a stale version
+        const worker = new Worker(`/miner.worker.js?v=${Date.now()}`);
         const threadId = t;
 
         worker.onmessage = (e) => {

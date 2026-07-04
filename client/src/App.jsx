@@ -31,7 +31,7 @@ function PageFallback() {
 
 function AppContent() {
   const [activePage, setActivePage] = useState('dashboard');
-  const PageComponent = PAGES[activePage] || Dashboard;
+  const PageComponent = PAGES[activePage];
 
   return (
     <div className="app-shell">
@@ -40,9 +40,19 @@ function AppContent() {
 
       {/* Main Content */}
       <main style={{ position: 'relative', zIndex: 1, flex: 1, minHeight: 0 }}>
-        <Suspense fallback={<PageFallback />}>
-          <PageComponent key={activePage} />
-        </Suspense>
+        {/* Dashboard is ALWAYS mounted so Web Workers keep running when switching
+            tabs. We simply hide it with CSS — no unmount, no worker teardown. */}
+        <div style={{ display: activePage === 'dashboard' ? 'block' : 'none' }}>
+          <Dashboard />
+        </div>
+
+        {/* Secondary pages are rendered on top when active. They get a key so
+            they always load fresh data when navigated to. */}
+        {activePage !== 'dashboard' && (
+          <Suspense fallback={<PageFallback />}>
+            <PageComponent key={activePage} />
+          </Suspense>
+        )}
       </main>
 
       {/* Bottom Navigation */}

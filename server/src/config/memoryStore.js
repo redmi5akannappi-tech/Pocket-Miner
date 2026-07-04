@@ -100,6 +100,8 @@ const User = {
       pendingBalance: 0,
       totalEarned: 0,
       totalPoints: 0,
+      pointsToday: 0,       // reset each day by payoutService
+      balance: 0,           // real VRSC credited from proportional split
       streak: 0,
       longestStreak: 0,
       lastLoginDate: null,

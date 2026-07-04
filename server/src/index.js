@@ -18,6 +18,10 @@ const withdrawRoutes = require('./routes/withdraw');
 const leaderboardRoutes = require('./routes/leaderboard');
 const missionsRoutes = require('./routes/missions');
 
+// Payout service (proportional split from LuckPool balance)
+const { initSnapshot, runDailyPayout, getSnapshotState } = require('./services/payoutService');
+const { User } = require('./models');
+
 const app = express();
 const server = http.createServer(app);
 
@@ -144,6 +148,22 @@ console.log('[WS] WebSocket server initialized on /ws');
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 
+// ─── Admin Payout API ─────────────────────────────────────────────────────────
+// GET  /api/payout/status  → current LuckPool snapshot (balance + timestamp)
+// POST /api/payout/run     → manually trigger payout (admin/testing only)
+app.get('/api/payout/status', async (req, res) => {
+  res.json(getSnapshotState());
+});
+
+app.post('/api/payout/run', async (req, res) => {
+  try {
+    const result = await runDailyPayout({ User });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const startServer = async () => {
   if (process.env.USE_MEMORY !== 'true') {
     await connectDB();
@@ -155,6 +175,29 @@ const startServer = async () => {
     console.log(`[SERVER] 🚀 Pocket Miner API running on port ${PORT}`);
     console.log(`[SERVER] Mode: ${process.env.USE_MEMORY === 'true' ? 'IN-MEMORY (no DB)' : 'MongoDB'}`);
   });
+
+  // Initialise LuckPool balance snapshot (baseline for tonight's payout)
+  await initSnapshot();
+
+  // ─── Daily payout cron — fires every day at 00:05 UTC ─────────────────────
+  // We check every minute whether it's time to run the payout.
+  // Simple interval avoids adding a cron dependency.
+  let lastPayoutDate = null;
+  setInterval(async () => {
+    const now = new Date();
+    const utcH = now.getUTCHours();
+    const utcM = now.getUTCMinutes();
+    const today = now.toISOString().slice(0, 10); // YYYY-MM-DD
+    if (utcH === 0 && utcM === 5 && lastPayoutDate !== today) {
+      lastPayoutDate = today;
+      console.log('[PAYOUT] ⏰ Daily cron triggered');
+      try {
+        await runDailyPayout({ User });
+      } catch (err) {
+        console.error('[PAYOUT] Cron run failed:', err.message);
+      }
+    }
+  }, 60_000); // check every minute
 };
 
 startServer().catch(err => {

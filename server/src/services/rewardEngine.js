@@ -22,7 +22,7 @@ const MODE_MULTIPLIERS = {
 function calculateSessionPoints(session) {
   const { validShares, mode, multiplierApplied, durationSeconds } = session;
 
-  if (validShares <= 0) return { points: 0, crypto: 0 };
+  if (validShares <= 0) return { points: 0, crypto: 0, pointsToday: 0 };
 
   const modeMultiplier = MODE_MULTIPLIERS[mode] || 1.0;
   const sessionBonus = durationSeconds >= 300 ? SESSION_BONUS : 1.0; // Bonus for 5+ min sessions
@@ -32,14 +32,11 @@ function calculateSessionPoints(session) {
     validShares * POINTS_PER_SHARE * modeMultiplier * sessionBonus * (multiplierApplied || 1.0)
   );
 
-  // Crypto formula: proportional to valid shares and session duration
-  // In production: user_reward = (user_valid_shares / total_valid_shares) * pool_rewards
-  // MVP: simplified per-share rate
-  const crypto = parseFloat(
-    (validShares * POOL_REWARD_RATE * (multiplierApplied || 1.0)).toFixed(8)
-  );
+  // Crypto: kept at 0 now — real VRSC is distributed by payoutService daily.
+  // The old per-share fixed rate overpaid; proportional split is the real value.
+  const crypto = 0;
 
-  return { points, crypto };
+  return { points, crypto, pointsToday: points };
 }
 
 /**
