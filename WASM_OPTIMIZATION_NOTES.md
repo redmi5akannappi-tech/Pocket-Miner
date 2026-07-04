@@ -58,6 +58,84 @@ Goal: speed up hashing while **keeping the original path** (user wants both, aut
   `scripts/aes_ttable_check.js` (pure node, no emcc needed). Because outputs are
   identical, `verify_batch.js` and pool acceptance are unaffected.
 
+## #3 STAGE 1 DONE (2026-07-04, part 2) — vpaes SIMD AES: CORRECT but NO speedup
+Approved plan: `C:\Users\devan\.claude\plans\validated-zooming-corbato.md`.
+
+### RESULT (measured on user's machine, single-thread)
+- Compiled clean; **turbo `verus_hash_simd.wasm` CHANGED, baseline unchanged** (not
+  inert like #2 — the SIMD code really landed).
+- **Bit-exact**: `verify_batch.js` all-pass; baseline hash == SIMD hash. Correct.
+- **Speed: ~1.0× (no gain)** — `bench_wasm.js`: baseline 18.4 KH/s vs turbo 18.2 KH/s.
+- **Why no gain:** vpaes swaps 16 gather-loads for ~30 SIMD ALU ops, but per Haraka
+  `aesenc` we hash ONE 16-byte block, and the GF(2⁴) inversion is a long SERIAL
+  dependency chain (ipt→nibbles→inv→io/jo→sbo→SR→MC). One block gives the pipeline
+  nothing to overlap, so the latency is exposed — about the same as the T-table,
+  which the CPU pipelines fine. SIMD parallelizes the 16 bytes *within* a block, but
+  the bottleneck is cross-op latency, not per-byte throughput. **The win needs many
+  independent blocks in flight** to hide that latency → that is Stage 2 (N-nonce
+  bitslice), not vpaes.
+- **Decision:** Stage 1 is a correct but performance-neutral change. It's turbo-only
+  and bit-exact, so harmless to keep, but it adds surface for zero benefit —
+  reverting the `haraka_vpaes.inc` patch (keep `vpaes_check.js` as reference) is a
+  clean option. Either way, **do NOT expect a speedup from it.**
+- **Real lever remains Stage 2** (below): batch N nonces through bitsliced AES so the
+  inversion latency is amortized across N blocks. Big effort, ~3–4× ceiling. That is
+  the only remaining path above the current ~0.38 MH/s platform floor.
+Goal: replace the scalar T-table `aesenc` in Haraka512 (the ~95% hot path) with a
+table-free WASM-SIMD (`-msimd128`) AES round, **turbo binary only**; baseline keeps
+T-table. Bit-identical output required.
+
+Technique (validated): **vpaes** (vector-permute AES). Compute SubBytes via GF(2⁴)
+inversion using in-register `wasm_i8x16_swizzle` nibble lookups (NO memory gather —
+that's the whole point; T-tables can't vectorize on WASM). Then STANDARD ShiftRows
+(fixed swizzle) + MixColumns (xtime, SIMD) + AddKey. State stays in standard domain,
+so it drops into Haraka unchanged (no domain-amortization tricks needed for Stage 1).
+
+Key facts nailed down:
+- SubBytes = `sbou[io] ^ sbot[jo] ^ 0x63`. The `^0x63` is essential: vpaes folds the
+  S-box affine CONSTANT into round keys, so the sbo tables give only the linear part.
+- `io,jo` from the vpaes entry/inversion block (ipt input-transform → inv/inva
+  lookups). Exact op sequence ported from OpenSSL `_vpaes_encrypt_core`.
+- Portability proof: every swizzle index stays in {0..15}∪{0x80..0x8F}, so WASM
+  `swizzle` (zero on idx≥16) ≡ x86 `pshufb` (zero on bit7). No masking needed.
+- Canonical vpaes constants + the whole validated algorithm live in
+  `scripts/vpaes_check.js`.
+
+STATUS / progress:
+- [x] Stage-1 vpaes AES round + SIMD MixColumns proven bit-identical to reference in
+      JS (`node scripts/vpaes_check.js`: SubBytes==sbox all 256; MixColumns==ref 100k;
+      full round==ref 200k). ALL PASS.
+- [x] Ported to C: `scripts/compile-verus-wasm.sh` now (a) emits the SIMD aesenc as
+      `haraka_vpaes.inc` (heredoc, tracked; constants from `DUMP=1 node vpaes_check.js`)
+      and (b) idempotently injects it into `haraka_portable.c` guarded
+      `#ifdef __wasm_simd128__`, scalar T-table kept in `#else`. Patch structure
+      verified (marker `HARAKA_SIMD_AESENC_PATCH`; one #ifdef/#else/#endif; aesenc2
+      untouched). Baseline build (no -msimd128) uses the scalar path unchanged.
+- [~] First WSL build hit `error: initializer element is not a compile-time constant`
+      on the file-scope `static const v128_t = wasm_u8x16_const(...)` (only constexpr
+      in C++, not C). FIXED: constants moved to function-local `const v128_t` inside
+      `aesenc` (regenerated in the `.inc` each build). Re-run the build.
+- [ ] **NEXT — user must rebuild in WSL** (I have no emcc). Then verify. Commands:
+      ```
+      cd .../Pocket\ Miner/scripts && bash compile-verus-wasm.sh 2>&1 | tail -25
+      cd .. && git status -s client/public/wasm/     # EXPECT: verus_hash_simd.wasm
+                                                     #   CHANGED, verus_hash.wasm NOT
+      node scripts/verify_batch.js                   # SIMD hash == baseline hash (bit-exact)
+      node scripts/bench_wasm.js                     # measure turbo vs baseline H/s
+      WASM=verus_hash_simd.wasm node scripts/mine_test.js 16   # pool-accepted share (needs net)
+      ```
+      Success = simd wasm changed + verify_batch passes + bench faster. Then browser
+      hard-refresh (Ctrl+Shift+R). If verify_batch FAILS → the SIMD aesenc has a bug
+      (revert is trivial: the scalar `#else` path is untouched; baseline unaffected).
+      If the WSL build ERRORS on a `wasm_*` intrinsic name → that's the only real risk
+      (name typo); the fix is in `haraka_vpaes.inc` in compile-verus-wasm.sh.
+
+HANDOFF for a fresh chat: everything above is committed to tracked files
+(`scripts/compile-verus-wasm.sh`, `scripts/vpaes_check.js`). The gitignored
+`.build/wasm_patch/haraka_portable.c` gets patched automatically on the next build
+(marker-guarded), so no manual .build edits are needed. Plan file:
+`C:\Users\devan\.claude\plans\validated-zooming-corbato.md`.
+
 ## Files
 - `scripts/compile-verus-wasm.sh` — builds BOTH binaries. **Generates its own
   `verus_wrapper.cpp` inline via heredoc and compiles THAT** — the checked-in
