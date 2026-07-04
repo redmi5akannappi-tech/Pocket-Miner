@@ -27,11 +27,15 @@ client/.env.*
 npm-debug.log*
 _*.log
 _*_test.js
+
+# Scripts / WASM compiler temp files
+scripts/.build/
 scripts/mine.log
 
-# OS
+# OS / Executables
 .DS_Store
 Thumbs.db
+*.exe
 
 # Editor
 .vscode/

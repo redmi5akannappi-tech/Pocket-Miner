@@ -38,7 +38,7 @@ app.use(helmet({
     useDefaults: true,
     directives: {
       'default-src': ["'self'"],
-      'script-src': ["'self'", 'https://telegram.org', "'unsafe-inline'"],
+      'script-src': ["'self'", 'https://telegram.org', "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'"],
       'style-src': ["'self'", "'unsafe-inline'"],
       'img-src': ["'self'", 'data:', 'https:'],
       'connect-src': ["'self'", 'ws:', 'wss:'],
@@ -61,10 +61,12 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (Telegram WebApp, mobile, curl)
     if (!origin) return callback(null, true);
-    // Allow any localhost port (dev), any .onrender.com subdomain (prod), + explicit allowed list
+    // Allow any localhost port (dev), any .onrender.com subdomain (prod), Cloudflare Tunnels, LocalTunnel, + explicit allowed list
     if (
       origin.startsWith('http://localhost:') || 
       origin.endsWith('.onrender.com') || 
+      origin.endsWith('.trycloudflare.com') ||
+      origin.endsWith('.loca.lt') ||
       ALLOWED_ORIGINS.includes(origin)
     ) {
       return callback(null, true);

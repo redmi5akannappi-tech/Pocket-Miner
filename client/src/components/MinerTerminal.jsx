@@ -4,13 +4,13 @@ import { Pickaxe } from 'lucide-react';
 const MAX_LINES = 80;
 
 const TAG_STYLES = {
-  POOL:  { color: '#00d4ff', bg: 'rgba(0,212,255,0.12)' },
-  JOB:   { color: '#bf5af2', bg: 'rgba(191,90,242,0.12)' },
-  HASH:  { color: '#39ff14', bg: 'rgba(57,255,20,0.12)'  },
-  SHARE: { color: '#ffd700', bg: 'rgba(255,215,0,0.12)'  },
-  ERR:   { color: '#ff4466', bg: 'rgba(255,68,102,0.12)' },
-  INFO:  { color: '#8888bb', bg: 'transparent'           },
-  STAT:  { color: '#ff8c00', bg: 'rgba(255,140,0,0.10)'  },
+  POOL:  { color: '#22d3ff', bg: 'rgba(34,211,255,0.12)' },
+  JOB:   { color: '#a97bff', bg: 'rgba(169,123,255,0.12)' },
+  HASH:  { color: '#00ff9c', bg: 'rgba(0,255,156,0.12)'  },
+  SHARE: { color: '#ffc94d', bg: 'rgba(255,201,77,0.12)'  },
+  ERR:   { color: '#ff3b64', bg: 'rgba(255,59,100,0.12)' },
+  INFO:  { color: '#798598', bg: 'transparent'           },
+  STAT:  { color: '#ff9d3d', bg: 'rgba(255,157,61,0.10)'  },
 };
 
 function ts() {
@@ -34,13 +34,12 @@ export default function MinerTerminal({ logs = [], isOpen, onToggle }) {
 
   return (
     <div style={{
-      borderRadius: 'var(--radius-lg)',
-      border: '1px solid rgba(57,255,20,0.25)',
-      background: 'rgba(0,0,0,0.85)',
+      border: '1px solid rgba(0,255,156,0.25)',
+      background: 'rgba(4,5,9,0.9)',
       overflow: 'hidden',
       marginBottom: 16,
-      boxShadow: '0 0 20px rgba(57,255,20,0.1), inset 0 0 40px rgba(0,0,0,0.5)',
-      backdropFilter: 'blur(12px)',
+      boxShadow: '0 0 20px rgba(0,255,156,0.08), inset 0 0 40px rgba(0,0,0,0.5)',
+      clipPath: 'polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px)',
     }}>
       {/* ── Terminal Title Bar ─────────────────────────────── */}
       <div
@@ -48,8 +47,8 @@ export default function MinerTerminal({ logs = [], isOpen, onToggle }) {
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 16px',
-          background: 'rgba(57,255,20,0.07)',
-          borderBottom: '1px solid rgba(57,255,20,0.18)',
+          background: 'rgba(0,255,156,0.07)',
+          borderBottom: '1px solid rgba(0,255,156,0.18)',
           cursor: 'pointer',
           userSelect: 'none',
         }}
@@ -59,7 +58,7 @@ export default function MinerTerminal({ logs = [], isOpen, onToggle }) {
           <div style={{ display: 'flex', gap: 6 }}>
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f57' }} />
             <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: isOpen ? '#39ff14' : '#333' }} />
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: isOpen ? '#00ff9c' : '#333' }} />
           </div>
           <span style={{
             fontFamily: 'monospace', fontSize: '0.72rem',
@@ -129,7 +128,7 @@ export default function MinerTerminal({ logs = [], isOpen, onToggle }) {
               fontSize: '0.72rem',
               lineHeight: 1.7,
               scrollbarWidth: 'thin',
-              scrollbarColor: 'rgba(57,255,20,0.3) transparent',
+              scrollbarColor: 'rgba(0,255,156,0.3) transparent',
             }}
           >
             {filtered.length === 0 ? (
