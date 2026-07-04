@@ -277,6 +277,11 @@ EOF
 mkdir -p "$PATCH/crypto"
 cp "$PATCH/common.h" "$PATCH/crypto/common.h"
 
+# verus_hash.cpp does #include "crypto/verus_hash.h". When the VerusCoin/src clone
+# is absent (skip-clone branch), mirror the top-level header into crypto/ so the
+# build stays self-contained and doesn't depend on the upstream checkout.
+cp "$PATCH/verus_hash.h" "$PATCH/crypto/verus_hash.h"
+
 # ── stub: hash.h ────────────────────────────────────────────────────────────
 # We bridge to verus_clhash.h and verus_hash.h so mine_verus_v2_port can see
 # CVerusHashV2bWriter, verusclhasher, thread_specific_ptr, etc.
@@ -686,6 +691,48 @@ cat > "$PATCH/verus_wrapper.cpp" << 'EOF'
 
 #include "verus_hash.h"
 
+/* One persistent hasher, created lazily and reused across every call — matches
+ * the pool's verushash-node pattern and avoids per-hash allocation. */
+static CVerusHashV2 *ensure_hasher() {
+    static CVerusHashV2 *hasher = nullptr;
+    if (!hasher) {
+        CVerusHash::init();
+        CVerusHashV2::init();
+        hasher = new CVerusHashV2(SOLUTION_VERUSHHASH_V2_2);
+    }
+    return hasher;
+}
+
+/* Increment a little-endian counter of `len` bytes at `p` (matches JS
+ * incrementNonce2 / mine_test.js). */
+static inline void inc_le(uint8_t *p, uint32_t len) {
+    for (uint32_t k = 0; k < len; k++) {
+        if (++p[k] != 0) break;  /* no carry needed */
+    }
+}
+
+/* Return 1 if the raw little-endian `hash` (reversed to big-endian) is <= the
+ * 32-byte big-endian `target`, i.e. a valid share. Byte-identical to the JS
+ * meetsTarget()/mine_test.js compare: MSB first, hash[31-i] vs target[i]. */
+static inline int meets_target(const uint8_t *hash, const uint8_t *target) {
+    for (int i = 0; i < 32; i++) {
+        uint8_t hb = hash[31 - i];   /* big-endian: MSB is the last raw byte */
+        if (hb < target[i]) return 1;
+        if (hb > target[i]) return 0;
+    }
+    return 1;  /* equal ⇒ valid */
+}
+
+/* 1 if display(a) < display(b) — i.e. raw LE hash `a` reversed is the smaller
+ * big-endian value (closer to target). MSB is raw byte 31. */
+static inline int is_lower(const uint8_t *a, const uint8_t *b) {
+    for (int i = 31; i >= 0; i--) {
+        if (a[i] < b[i]) return 1;
+        if (a[i] > b[i]) return 0;
+    }
+    return 0;
+}
+
 extern "C" {
 
 /**
@@ -701,53 +748,119 @@ extern "C" {
  */
 EMSCRIPTEN_KEEPALIVE
 void verus_hash(const uint8_t *in, uint32_t len, uint8_t *out) {
-    static bool initialized = false;
-    static CVerusHashV2 *hasher = nullptr;
-    if (!initialized) {
-        CVerusHash::init();
-        CVerusHashV2::init();
-        // Create hasher ONCE and reuse — matches pool's verushash-node pattern
-        hasher = new CVerusHashV2(SOLUTION_VERUSHHASH_V2_2);
-        initialized = true;
-    }
+    CVerusHashV2 *hasher = ensure_hasher();
     hasher->Reset();
     hasher->Write(in, len);
     hasher->Finalize2b(out);
+}
+
+/**
+ * Batch mining loop — runs entirely inside WASM to eliminate the per-hash
+ * JS↔WASM boundary and JS array churn.
+ *
+ * `input` is a resident 1487-byte buffer in the WASM heap (built once per job by
+ * JS). Each iteration increments the little-endian counting nonce IN PLACE at
+ * input[nonce_offset .. nonce_offset+inc_len) — for merged-mining v7 this is the
+ * only entropy that reaches the hash (the header nonce stays zeroed) — then
+ * hashes the full buffer and compares against the big-endian `target`.
+ *
+ * Returns:
+ *   >= 0 : the 0-based index of the winning hash. The buffer is LEFT at the
+ *          winning nonce and `out_hash` holds the 32-byte raw (LE) winning hash,
+ *          so JS can read the solution + counting nonce straight from the heap.
+ *   -1   : no win this batch. The buffer is left at the last nonce tried, so the
+ *          next call simply continues the search.
+ *
+ * `best_hash` (optional, may be NULL) receives the lowest hash seen this batch —
+ * for the UI "best" diagnostic. Pass 0/NULL to skip.
+ *
+ * Called from JS as:
+ *   verusHashBatch(inPtr, inLen, nonceOff, incLen, iters, targetPtr, outPtr, bestPtr)
+ */
+EMSCRIPTEN_KEEPALIVE
+int32_t verus_hash_batch(uint8_t *input, uint32_t input_len,
+                         uint32_t nonce_offset, uint32_t inc_len,
+                         uint32_t iterations, const uint8_t *target,
+                         uint8_t *out_hash, uint8_t *best_hash) {
+    CVerusHashV2 *hasher = ensure_hasher();
+    uint8_t *noncep = input + nonce_offset;
+    uint8_t hash[32];
+    uint8_t best[32]; memset(best, 0xFF, 32);   /* worst possible → any hash is lower */
+    for (uint32_t i = 0; i < iterations; i++) {
+        /* Increment first: the initial (random) nonce is never hashed directly,
+         * matching the JS loop which increments before hashing. */
+        inc_le(noncep, inc_len);
+        hasher->Reset();
+        hasher->Write(input, input_len);
+        hasher->Finalize2b(hash);
+        if (is_lower(hash, best)) memcpy(best, hash, 32);
+        if (meets_target(hash, target)) {
+            memcpy(out_hash, hash, 32);
+            if (best_hash) memcpy(best_hash, best, 32);
+            return (int32_t)i;
+        }
+    }
+    if (best_hash) memcpy(best_hash, best, 32);
+    return -1;
 }
 
 } /* extern "C" */
 EOF
 
 # ── compile ─────────────────────────────────────────────────────────────────
-echo "Compiling VerusHash WASM module..."
-emcc \
-  "$PATCH/verus_wrapper.cpp" \
-  "$PATCH/verus_hash.cpp" \
-  "$PATCH/verus_clhash_portable.cpp" \
-  "$PATCH/haraka_portable.c" \
-  "$PATCH/haraka_stubs.c" \
-  -I"$PATCH" \
-  -I"$BUILD_DIR/VerusCoin/src" \
-  -s WASM=1 \
-  -s EXPORTED_FUNCTIONS='["_malloc","_free","_verus_hash"]' \
-  -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8"]' \
-  -s ALLOW_MEMORY_GROWTH=1 \
-  -s MODULARIZE=1 \
-  -s EXPORT_NAME="VerusHashModule" \
-  -s ENVIRONMENT='web,worker' \
-  -s ASSERTIONS=1 \
-  -O2 \
-  -fno-inline \
-  -fkeep-static-consts \
-  -o "$BUILD_DIR/verus_hash.js"
+# build_wasm <out_base> <opt/simd flags...>
+# Produces <out_base>.js + <out_base>.wasm. Both builds share the same sources
+# and exports (including the new _verus_hash_batch loop); only the optimization
+# / SIMD flags differ.
+build_wasm() {
+    local out_base="$1"; shift
+    echo "Compiling VerusHash WASM module → $(basename "$out_base").{js,wasm} ($*)"
+    emcc \
+      "$PATCH/verus_wrapper.cpp" \
+      "$PATCH/verus_hash.cpp" \
+      "$PATCH/verus_clhash_portable.cpp" \
+      "$PATCH/haraka_portable.c" \
+      "$PATCH/haraka_stubs.c" \
+      -I"$PATCH" \
+      -I"$BUILD_DIR/VerusCoin/src" \
+      -s WASM=1 \
+      -s EXPORTED_FUNCTIONS='["_malloc","_free","_verus_hash","_verus_hash_batch"]' \
+      -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","HEAPU8"]' \
+      -s ALLOW_MEMORY_GROWTH=1 \
+      -s MODULARIZE=1 \
+      -s EXPORT_NAME="VerusHashModule" \
+      -s ENVIRONMENT='web,worker' \
+      -s ASSERTIONS=1 \
+      "$@" \
+      -o "$out_base.js"
+    echo "Done. Output: $out_base.js / .wasm"
+    ls -lh "$out_base."*
+}
 
-echo "Done. Output: $BUILD_DIR/verus_hash.js / .wasm"
-ls -lh "$BUILD_DIR/verus_hash."*
+# Emit build artifacts to a NATIVE Linux filesystem, not the /mnt/c DrvFs mount.
+# emcc's post-link llvm-objcopy step rewrites the .wasm in place, which fails with
+# "Operation not permitted" on Windows-mounted drives under WSL. We build here and
+# only copy the finished files onto the (possibly mounted) client dir below.
+OUT_DIR="${VERUS_WASM_OUT:-${TMPDIR:-/tmp}/verus_wasm_build}"
+mkdir -p "$OUT_DIR"
+
+# Baseline: maximum compatibility, no SIMD (software AES emulation only).
+# NOTE: -O3 with inlining (dropped the old -fno-inline, which crippled the hot
+# AES/Haraka path). verify_batch.js confirms inlining is correctness-safe.
+build_wasm "$OUT_DIR/verus_hash"      -O3 -fkeep-static-consts
+
+# Turbo: WebAssembly SIMD (-msimd128) + -O3 so the vectorizer can inline the
+# __m128i operator/AES helpers and vectorize the 16-byte lanewise loops. Loaded
+# only when the browser reports WASM SIMD support. Drop -fno-inline here.
+build_wasm "$OUT_DIR/verus_hash_simd" -O3 -msimd128 -fkeep-static-consts
 
 # ── Deploy to client/public/wasm/ ───────────────────────────────────────────
+# Plain cp onto DrvFs works fine — only in-place objcopy did not.
 CLIENT_WASM="$ROOT/../client/public/wasm"
 mkdir -p "$CLIENT_WASM"
-cp "$BUILD_DIR/verus_hash.js"   "$CLIENT_WASM/"
-cp "$BUILD_DIR/verus_hash.wasm" "$CLIENT_WASM/"
-echo "✅ Copied to $CLIENT_WASM/"
+cp "$OUT_DIR/verus_hash.js"        "$CLIENT_WASM/"
+cp "$OUT_DIR/verus_hash.wasm"      "$CLIENT_WASM/"
+cp "$OUT_DIR/verus_hash_simd.js"   "$CLIENT_WASM/"
+cp "$OUT_DIR/verus_hash_simd.wasm" "$CLIENT_WASM/"
+echo "✅ Copied baseline + turbo binaries to $CLIENT_WASM/"
 ls -lh "$CLIENT_WASM/"

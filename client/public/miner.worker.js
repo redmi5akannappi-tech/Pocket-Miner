@@ -19,7 +19,7 @@
  *
  * Messages OUT (postMessage to main thread):
  *   { type: 'wasm_status', loaded: bool, message: string }
- *   { type: 'hashrate',    value: number }         ← H/s, every second
+ *   { type: 'hashrate',    value: number }         ← true H/s (per second), every 10s
  *   { type: 'share',       data: ShareData }       ← valid nonce found
  *   { type: 'stopped' }
  *   { type: 'error',       data: { message } }
@@ -38,50 +38,110 @@ let modeThrottle   = 40;   // target CPU% (eco=15, balanced=40, turbo=75, monste
 let THROTTLE       = 18;   // calculated sleep ms per batch
 
 let verusHashFunc = null;
+let verusHashBatchFunc = null;   // _verus_hash_batch (fast path); null if unavailable
 let inputPtr = null;
 let outputPtr = null;
+let targetPtr = null;            // resident 32-byte big-endian target (fast path)
+let bestPtr   = null;            // resident 32-byte lowest-hash-this-batch (diagnostic)
+
+// ─── Performance mode selection (keep BOTH paths; auto-pick per device) ───────
+// perfMode:  'auto' | 'fast' | 'compat'   (from the 'start' message)
+// loopMode:  resolved loop → 'fast' (C++ batch) | 'compat' (per-hash JS loop)
+// binaryKind: which WASM binary loaded → 'turbo' (SIMD) | 'baseline'
+let perfMode      = 'auto';
+let loopMode      = 'compat';
+let binaryKind    = 'baseline';
+let batchAvailable = false;
+
+// One-time feature-detect for WebAssembly SIMD (canonical probe module — a
+// function returning a v128 via i8x16.splat; validates only where SIMD is on).
+const SIMD_SUPPORTED = (() => {
+  try {
+    return WebAssembly.validate(new Uint8Array([
+      0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123,
+      3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+    ]));
+  } catch (_) {
+    return false;
+  }
+})();
+
+// Resolve which mining loop to run, given perfMode + what the loaded binary
+// actually exports. Falls back to the proven per-hash loop when in doubt.
+function resolveLoopMode() {
+  if (!batchAvailable || perfMode === 'compat') { loopMode = 'compat'; return; }
+  // 'fast' forces the batch loop; 'auto' prefers it whenever it's available.
+  loopMode = 'fast';
+}
 
 // ─── WASM Loading ─────────────────────────────────────────────────────────────
 async function loadWasm() {
-  try {
-    // Import the Emscripten-generated JS glue code
-    importScripts('/wasm/verus_hash.js');
+  // Prefer the SIMD "turbo" binary when the browser supports it; always keep the
+  // baseline binary as a fallback (also covers the case where turbo isn't
+  // deployed yet, since importScripts of a missing file throws → next candidate).
+  const candidates = [];
+  if (SIMD_SUPPORTED) candidates.push({ kind: 'turbo',    url: '/wasm/verus_hash_simd.js' });
+  candidates.push({ kind: 'baseline', url: '/wasm/verus_hash.js' });
 
-    // Initialize the module — override locateFile so Emscripten finds
-    // verus_hash.wasm at /wasm/ even inside a Web Worker (where
-    // document.currentScript is undefined and path resolution breaks).
-    const module = await self.VerusHashModule({
-      locateFile: (path) => `/wasm/${path}`,
-    });
-    wasmExports = module;
+  let lastErr = null;
+  for (const c of candidates) {
+    try {
+      // Import the Emscripten-generated JS glue code. Both binaries share the
+      // same EXPORT_NAME (VerusHashModule), so a later importScripts overwrites
+      // the factory of an earlier failed candidate.
+      importScripts(c.url);
 
-    // Map the C function to JS using cwrap
-    verusHashFunc = module.cwrap('verus_hash', 'void', ['number', 'number', 'number']);
+      // Initialize the module — override locateFile so Emscripten finds the
+      // matching .wasm at /wasm/ even inside a Web Worker (where
+      // document.currentScript is undefined and path resolution breaks).
+      const module = await self.VerusHashModule({
+        locateFile: (path) => `/wasm/${path}`,
+      });
+      wasmExports = module;
+      binaryKind  = c.kind;
 
-    // Pre-allocate memory buffers ONCE to prevent heap fragmentation
-    // VerusHash input = header(140) + solution(1347) = 1487 bytes
-    // Allocating 2048 bytes to be safe
-    inputPtr  = module._malloc(2048);
-    outputPtr = module._malloc(32);
+      // Map the C functions to JS using cwrap
+      verusHashFunc = module.cwrap('verus_hash', 'void', ['number', 'number', 'number']);
 
-    wasmReady = true;
+      // The batch loop may be absent on an old cached .wasm — detect + wire it up.
+      batchAvailable = typeof module._verus_hash_batch === 'function';
+      if (batchAvailable) {
+        verusHashBatchFunc = module.cwrap(
+          'verus_hash_batch', 'number',
+          ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'number'],
+        );
+      }
 
-    self.postMessage({
-      type: 'wasm_status',
-      loaded: true,
-      message: '✅ verus_hash.wasm loaded — REAL VerusHash active!',
-    });
+      // Pre-allocate memory buffers ONCE to prevent heap fragmentation.
+      // VerusHash input = header(140) + solution(1347) = 1487 bytes.
+      // Allocating 2048 bytes to be safe.
+      inputPtr  = module._malloc(2048);
+      outputPtr = module._malloc(32);
+      targetPtr = module._malloc(32);
+      bestPtr   = module._malloc(32);
 
-    return true;
-  } catch (err) {
-    wasmReady = false;
-    self.postMessage({
-      type: 'wasm_status',
-      loaded: false,
-      message: `⚠️ WASM not found (${err.message}) — using JS stub (demo only)`,
-    });
-    return false;
+      wasmReady = true;
+      resolveLoopMode();
+
+      self.postMessage({
+        type: 'wasm_status',
+        loaded: true,
+        message: `✅ VerusHash WASM active — binary=${binaryKind}${SIMD_SUPPORTED ? '(SIMD)' : ''}, loop=${loopMode}`,
+      });
+
+      return true;
+    } catch (err) {
+      lastErr = err;   // try the next candidate (e.g. turbo missing → baseline)
+    }
   }
+
+  wasmReady = false;
+  self.postMessage({
+    type: 'wasm_status',
+    loaded: false,
+    message: `⚠️ WASM not found (${lastErr && lastErr.message}) — using JS stub (demo only)`,
+  });
+  return false;
 }
 
 // ─── WASM VerusHash call ──────────────────────────────────────────────────────
@@ -319,8 +379,159 @@ function meetsLocalDifficulty(hashBytes, requiredZeroNibbles) {
   return hashHex.startsWith('0'.repeat(requiredZeroNibbles));
 }
 
-// ─── Main Mining Loop ─────────────────────────────────────────────────────────
-async function mineLoop() {
+// ─── Main Mining Loop (dispatcher) ────────────────────────────────────────────
+// Picks the resolved loop. Both paths reuse the same builders + share-message
+// shape, so they cannot diverge in correctness.
+function mineLoop() {
+  return loopMode === 'fast' ? mineLoopBatch() : mineLoopPerHash();
+}
+
+// ─── FAST path: batch loop runs entirely inside WASM ──────────────────────────
+// JS builds the 1487-byte input into the resident WASM heap ONCE per job; the
+// C++ verus_hash_batch loop then increments the 11-byte counting nonce in place
+// and hashes a whole batch without crossing the JS↔WASM boundary per hash.
+async function mineLoopBatch() {
+  const REPORT_MS = 10_000;
+  let lastReport  = Date.now();
+
+  let firstHashLogged = 0;
+  let bestHash = null;   // lowest hash seen (fast path: only updated on wins)
+
+  // Per-job resident state — rebuilt when the job / extranonce1 changes.
+  let jobKey      = null;
+  let inputLen    = 0;
+  let nonceRel    = 0;   // nonce offset RELATIVE to input start (passed to C)
+  let nonceAbs    = 0;   // absolute heap offset of the counting nonce (for JS heap I/O)
+  let incLen      = 0;   // # of nonce bytes incremented as an LE counter (11)
+  let origMMR     = null;
+
+  while (running && currentJob) {
+    // Batch size: bigger when unthrottled. A batch is one blocking WASM call, so
+    // its size ≈ stop/new_job latency (~0.5 s for 10k at ~20 KH/s).
+    const HASH_BATCH = THROTTLE === 0 ? 10000 : 2000;
+
+    const nonce1Hex = currentJob.extranonce1 || '';
+    const key = `${currentJob.jobId}|${nonce1Hex}`;
+
+    // (Re)build the resident heap buffer on job/extranonce change or an explicit
+    // re-randomize request (new_job sets self._nextNonce).
+    if (key !== jobKey || self._nextNonce) {
+      self._nextNonce = undefined;
+      jobKey = key;
+
+      const nonce1Len = nonce1Hex.length / 2;
+      const nonce2Len = 32 - nonce1Len;
+      if (nonce2Len <= 0 || nonce2Len > 32) {
+        self.postMessage({ type: 'error', data: { message: `Invalid nonce sizes: nonce1=${nonce1Len}B, nonce2=${nonce2Len}B` } });
+        return;
+      }
+
+      const merged   = isMergedMiningV7(currentJob);
+      const solnBase  = buildSolutionBase(currentJob, merged);
+      const baseHeader = buildBlockHeader(currentJob, new Uint8Array(nonce2Len), merged);
+
+      inputLen    = 140 + solnBase.bytes.length;       // 1487
+      nonceRel    = 140 + solnBase.nonce2ByteOffset;    // relative to input start
+      nonceAbs    = inputPtr + nonceRel;                // absolute heap offset
+      incLen      = solnBase.nonce2MaxBytes;            // 11 (for 4-byte en1)
+      origMMR     = solnBase.origMMR;
+
+      // Write header + solution into the resident WASM buffer ONCE.
+      let heap = getHeap();
+      heap.set(baseHeader, inputPtr);
+      heap.set(solnBase.bytes, inputPtr + 140);
+
+      // Seed the counting nonce with random bytes (per-worker separation), then
+      // write the 32-byte big-endian target.
+      const seed = new Uint8Array(incLen);
+      crypto.getRandomValues(seed);
+      heap.set(seed, nonceAbs);
+      const targetBytes = hexToBytes((currentJob.target || '').padEnd(64, '0'));
+      heap.set(targetBytes.subarray(0, 32), targetPtr);
+
+      if (firstHashLogged < 1) {
+        console.log(`[WORKER:fast] merged=${merged} solnVer=${solutionVersion(currentJob)} binary=${binaryKind} inputLen=${inputLen} nonceRel=${nonceRel} incLen=${incLen} target=${(currentJob.target || '').slice(0, 16)}`);
+      }
+    }
+
+    // ── Run one batch entirely inside WASM ──────────────────────────────────
+    let idx = -1;
+    try {
+      idx = verusHashBatchFunc(inputPtr, inputLen, nonceRel, incLen, HASH_BATCH, targetPtr, outputPtr, bestPtr);
+    } catch (e) {
+      // On any WASM error, fall back to the proven per-hash loop.
+      self.postMessage({ type: 'wasm_status', loaded: wasmReady, message: `⚠️ batch loop error (${e.message}) — switching to compat loop` });
+      loopMode = 'compat';
+      return mineLoopPerHash();
+    }
+
+    // idx >= 0 → a hash met the pool target; buffer + outputPtr hold the winner.
+    hashCount += idx < 0 ? HASH_BATCH : idx + 1;
+
+    // Fold this batch's lowest hash into the interval best (diagnostic display).
+    const batchBest = getHeap().slice(bestPtr, bestPtr + 32);
+    if (!bestHash || compareBytes(batchBest, bestHash) < 0) bestHash = batchBest;
+
+    if (idx >= 0) {
+      const heap = getHeap();
+      const hashBytes = heap.slice(outputPtr, outputPtr + 32);                  // raw LE hash
+
+      // Solution = 1347 bytes from the resident buffer (MMR zeroed + winning
+      // nonce); restore the intact MMR roots for pool submission.
+      const solField = heap.slice(inputPtr + 140, inputPtr + inputLen);
+      if (origMMR) solField.set(origMMR, 11);
+      const solutionHex = bytesToHex(solField);
+
+      // The counting nonce is only the 11-byte solution tail we iterated.
+      const countingHex = bytesToHex(heap.slice(nonceAbs, nonceAbs + incLen));
+      const shareHashHex = bytesToHex(hashBytes.slice().reverse());             // big-endian display
+
+      if (firstHashLogged < 3) {
+        console.log(`[WORKER:fast] 🎯 SHARE hashBE=${shareHashHex.slice(0, 16)} target=${(currentJob.target || '').slice(0, 16)}`);
+        firstHashLogged++;
+      }
+
+      self.postMessage({
+        type: 'share',
+        data: {
+          jobId:     currentJob.jobId,
+          nonce2Hex: countingHex,   // 11-byte counting nonce
+          time:      currentJob.time,
+          hash:      shareHashHex,
+          solution:  solutionHex,   // 2694-char solution, intact MMR + winning nonce
+          meetsPool: true,
+          realHash:  wasmReady,
+        },
+      });
+      // Buffer is left at the winning nonce; the next batch increments past it,
+      // so we keep searching without re-submitting the same share.
+    }
+
+    // ── Report hashrate every 10s ───────────────────────────────────────────
+    // value is a true per-second rate (H/s): hashes counted ÷ actual elapsed
+    // seconds. The main thread sums per-worker H/s, so the KH/s label is honest.
+    const now = Date.now();
+    if (now - lastReport >= REPORT_MS) {
+      const elapsedSec = (now - lastReport) / 1000;
+      const hps = elapsedSec > 0 ? Math.round(hashCount / elapsedSec) : 0;
+      const bestHex = bestHash ? bytesToHex(bestHash.slice().reverse()) : 'none';
+      self.postMessage({ type: 'hashrate', value: hps, bestHash: bestHex });
+      hashCount  = 0;
+      bestHash   = null;
+      lastReport = now;
+    }
+
+    // Yield between batches so 'stop'/'new_job' are processed + CPU is throttled.
+    await sleep(THROTTLE > 0 ? THROTTLE : 0);
+  }
+
+  if (!running) {
+    self.postMessage({ type: 'stopped' });
+  }
+}
+
+// ─── COMPAT path: original per-hash JS loop (unchanged, proven) ───────────────
+async function mineLoopPerHash() {
   // Bigger batches = less sleep(0) overhead on Windows (~4ms per sleep)
   // Monster: 20k hashes/batch → ~14ms work + 4ms sleep = 78% efficiency
   const BATCH      = THROTTLE === 0 ? 20000 : 500;
@@ -460,8 +671,10 @@ async function mineLoop() {
     // ── Report hashrate + best hash every second ─────────────────────────────
     const now = Date.now();
     if (now - lastReport >= REPORT_MS) {
+      const elapsedSec = (now - lastReport) / 1000;
+      const hps = elapsedSec > 0 ? Math.round(hashCount / elapsedSec) : 0;   // true H/s
       const bestHex = bestHash ? bytesToHex(bestHash.slice().reverse()) : 'none';
-      self.postMessage({ type: 'hashrate', value: hashCount, bestHash: bestHex });
+      self.postMessage({ type: 'hashrate', value: hps, bestHash: bestHex });
       hashCount   = 0;
       bestHash    = null;  // reset for next interval
       lastReport  = now;
@@ -505,6 +718,9 @@ self.onmessage = async (e) => {
       running      = true;
       currentJob   = { ...job, mode };
       upgradeLevel = lvl || 1;
+      // 'auto' (default) picks the fast C++ batch loop when available, else the
+      // proven per-hash loop. 'fast'/'compat' force a specific path.
+      perfMode     = e.data.perfMode || 'auto';
       modeThrottle = { eco: 15, balanced: 40, turbo: 75, monster: 100 }[mode] || 40;
       
       // Calculate idle ms per batch

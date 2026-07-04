@@ -50,7 +50,9 @@ function meetsTarget(hash, targetBytes) {
 
 // ── WASM (manual instantiation; glue is web/worker-only) ─────────────────────
 async function loadWasm() {
-  const bin = fs.readFileSync(path.join(__dirname, '..', 'client', 'public', 'wasm', 'verus_hash.wasm'));
+  // WASM=verus_hash_simd.wasm validates the turbo (SIMD) binary against the pool.
+  const wasmFile = process.env.WASM || 'verus_hash.wasm';
+  const bin = fs.readFileSync(path.join(__dirname, '..', 'client', 'public', 'wasm', wasmFile));
   let mem; const die = (m) => { throw new Error('wasm ' + m); };
   const { instance } = await WebAssembly.instantiate(bin, {
     env: { __assert_fail: () => die('assert'), _abort_js: () => die('abort'),
@@ -60,15 +62,27 @@ async function loadWasm() {
   const ex = instance.exports; mem = ex.memory;
   ex.__wasm_call_ctors && ex.__wasm_call_ctors();
   const malloc = ex.malloc || ex._malloc, vh = ex.verus_hash || ex._verus_hash;
-  const inPtr = malloc(2048), outPtr = malloc(32);
-  return (bytes) => { new Uint8Array(mem.buffer).set(bytes, inPtr); vh(inPtr, bytes.length, outPtr); return new Uint8Array(mem.buffer).slice(outPtr, outPtr + 32); };
+  const vhb = ex.verus_hash_batch || ex._verus_hash_batch;
+  const inPtr = malloc(2048), outPtr = malloc(32), tgtPtr = malloc(32);
+  const heap = () => new Uint8Array(mem.buffer);
+  const hash = (bytes) => { heap().set(bytes, inPtr); vh(inPtr, bytes.length, outPtr); return heap().slice(outPtr, outPtr + 32); };
+  // Fast path: run the whole loop inside WASM. Returns the winning index (buffer +
+  // outPtr left at the winner) or -1. nonceRel is relative to the input start.
+  const batch = vhb ? (inputLen, nonceRel, incLen, iters) => vhb(inPtr, inputLen, nonceRel, incLen, iters, tgtPtr, outPtr, 0) : null;
+  return { hash, batch, heap, inPtr, outPtr, tgtPtr, hasBatch: !!vhb };
 }
 
 // ═══════════════════════════ WORKER ═══════════════════════════════════════════
 if (!isMainThread) {
   (async () => {
-    const hash = await loadWasm();
-    let job = null, targetBytes = null, input = null, nOff = 0, nLen = 0, nonce = null, merged = false, origMMR = null;
+    const wasm = await loadWasm();
+    const hash = wasm.hash;
+    // BATCH=1 exercises the new in-WASM verus_hash_batch loop (fast path).
+    const USE_BATCH = process.env.BATCH === '1' && wasm.hasBatch;
+    if (process.env.BATCH === '1' && !wasm.hasBatch) {
+      console.log(`[worker ${workerData.id}] ⚠️ BATCH requested but verus_hash_batch not exported — rebuild WASM; using per-hash loop`);
+    }
+    let job = null, targetBytes = null, input = null, inputLen = 0, nOff = 0, nLen = 0, nonce = null, merged = false, origMMR = null;
     let count = 0;
     const setJob = (j) => {
       job = j; merged = isMergedV7(j.solutionTemplate);
@@ -79,16 +93,48 @@ if (!isMainThread) {
       // originals to restore in the SUBMITTED solution (pool validates them).
       if (merged) { origMMR = input.slice(140 + 11, 140 + 75); input.fill(0, 140 + 11, 140 + 75); } else origMMR = null;
       nOff = 140 + sol.nonce2ByteOffset; nLen = sol.nonce2MaxBytes;
+      inputLen = input.length;
       nonce = new Uint8Array(nLen);
       // unique per-worker start so threads don't overlap
       for (let k = 0; k < nLen; k++) nonce[k] = (Math.random() * 256) | 0;
       nonce[nLen - 1] = workerData.id; // last byte = worker id namespace
+      if (USE_BATCH) {
+        // Seed the counting nonce into the resident buffer, then hand the whole
+        // input + target to the WASM heap once. The batch loop mutates it in place.
+        input.set(nonce, nOff);
+        const heap = wasm.heap();
+        heap.set(input, wasm.inPtr);
+        heap.set(targetBytes.subarray(0, 32), wasm.tgtPtr);
+      }
     };
     let best = null; // lowest hash seen this interval (Uint8Array, compared big-endian)
     const lower = (a, b) => { for (let i = 0; i < 32; i++) { if (a[31 - i] < b[31 - i]) return true; if (a[31 - i] > b[31 - i]) return false; } return false; };
     parentPort.on('message', (m) => { if (m.job) setJob(m.job); });
     const tick = () => {
       if (!job) return setTimeout(tick, 50);
+
+      // ── FAST PATH: whole batch inside WASM ────────────────────────────────
+      if (USE_BATCH) {
+        const ITERS = 20000;
+        // inc_len = nLen-1 keeps the last byte as this worker's namespace (the
+        // per-hash loop above increments the same low bytes).
+        const idx = wasm.batch(inputLen, nOff, nLen - 1, ITERS);
+        count += idx < 0 ? ITERS : idx + 1;
+        if (idx >= 0) {
+          const heap = wasm.heap();
+          const h = heap.slice(wasm.outPtr, wasm.outPtr + 32);
+          if (!best || lower(h, best)) best = h.slice();
+          const solField = heap.slice(wasm.inPtr + 140, wasm.inPtr + inputLen); // MMR-zeroed + winning nonce
+          if (origMMR) solField.set(origMMR, 11);                               // restore intact MMR
+          const solutionHex = bytesToHex(solField);
+          const counting = bytesToHex(heap.slice(wasm.inPtr + nOff, wasm.inPtr + nOff + nLen));
+          parentPort.postMessage({ share: { jobId: job.jobId, time: job.time, hash: bytesToHex(h.slice().reverse()),
+            counting, solutionHex, en1: job.extranonce1 } });
+        }
+        return setImmediate(tick);
+      }
+
+      // ── COMPAT PATH: per-hash JS loop ─────────────────────────────────────
       for (let i = 0; i < 20000; i++) {
         for (let k = 0; k < nLen - 1; k++) { nonce[k]++; if (nonce[k] !== 0) break; } // check STORED value; ++arr[k] returns 256 (truthy) on wrap
         input.set(nonce, nOff);
@@ -161,6 +207,6 @@ else {
     w.on('error', (e) => log(`worker ${i} error`, e.message));
     workers.push(w);
   }
-  log(`mining with ${NTHREADS} threads — will submit real shares and report pool verdicts`);
+  log(`mining with ${NTHREADS} threads — path=${process.env.BATCH === '1' ? 'FAST (verus_hash_batch)' : 'compat (per-hash)'} — will submit real shares and report pool verdicts`);
   setInterval(() => { const hs = rates.reduce((a, b) => a + b, 0) / 5; log(`~${(hs / 1000).toFixed(1)} KH/s (${NTHREADS}T)  bestEver=${bestEver || 'none'}  target=${target.slice(0, 12)}`); }, 30000);
 }
